@@ -1,0 +1,48 @@
+# Secrets and local environment files
+.env
+.env.*
+!.env.example
+
+# Python caches, environments, and build artifacts
+__pycache__/
+*.py[cod]
+*$py.class
+.venv/
+venv/
+env/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+*.egg-info/
+dist/
+build/
+
+# Database dumps, raw downloads, and data exports
+# Git stores only the database engine (code, migrations, queries, small test fixtures).
+# Live data stays in PostgreSQL or external release snapshots.
+*.dump
+*.bak
+*.sql.gz
+*.parquet
+*.tsv
+*.tsv.gz
+*.csv
+*.jsonl
+data/
+dumps/
+exports/
+backups/
+!tests/fixtures/**
+
+# Logs
+*.log
+
+# OS and editor files
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+*.swp
+*.swo
