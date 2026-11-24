@@ -43,6 +43,23 @@ package "public schema" {
     * updated_at : TIMESTAMPTZ
   }
 
+  entity "public.speaker_relationships" as speaker_relationships {
+    * id : BIGINT <<PK, identity>>
+    --
+    * speaker_id : BIGINT <<FK, UK>>
+    * related_speaker_id : BIGINT <<FK, UK>>
+    * relationship_type : TEXT <<UK>>
+    is_ended : BOOLEAN
+    start_year : SMALLINT
+    end_year : SMALLINT
+    --
+    * source : TEXT
+    * is_verified : BOOLEAN
+    last_seen_at : TIMESTAMPTZ
+    * created_at : TIMESTAMPTZ
+    * updated_at : TIMESTAMPTZ
+  }
+
   entity "public.etl_runs" as etl_runs {
     * id : BIGINT <<PK, identity>>
     --
@@ -58,6 +75,8 @@ package "public schema" {
   }
 }
 
+speakers ||--o{ speaker_relationships : "speaker_id (subject)"
+speakers ||--o{ speaker_relationships : "related_speaker_id (related)"
 etl_runs |o..o{ wikidata_raw : "logical run reference (no rigid FK)"
 wikidata_raw ..> speakers : "transformed & upserted via wikidata_qid / bridge IDs"
 @enduml

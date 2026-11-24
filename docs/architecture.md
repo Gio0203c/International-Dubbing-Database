@@ -110,3 +110,23 @@ The Wikidata ETL will query `wikibase:timePrecision` (`11` for day, `10` for mon
 ### Consequences
 
 All four partial-date shapes (year only, year and month, month and day without year, and full date) are stored cleanly with zero placeholder values. Birthday lookups remain fast even when birth years are unknown, and false January 1st dates are prevented at extraction time.
+
+## ADR-005: Self-Referencing Family Relationships Table
+
+### Context
+
+Dubbing frequently runs across multi-generational families, and Wikidata already documents kinship properties between voice actors (`P22` father, `P25` mother, `P40` child, `P3373` sibling, `P26` spouse, `P451` unmarried partner, and `P1038` relative). Adding fixed relationship columns directly to `public.speakers` (such as `father_id` or `spouse_id`) breaks down as soon as a person has multiple siblings, multiple marriages, or broader family links.
+
+### Decision
+
+Family links live in a dedicated self-referencing link table `public.speaker_relationships` (mirroring MusicBrainz's `l_artist_artist` and `link` pattern), where both `speaker_id` and `related_speaker_id` reference `public.speakers(id)` with `ON DELETE CASCADE`.
+
+The `relationship_type` vocabulary distinguishes directed parenthood (`parent_of`, where `speaker_id` is the parent of `related_speaker_id`) from symmetric relations (`sibling`, `spouse`, `partner`, `relative`). A `CHECK` constraint forbids self-links (`speaker_id <> related_speaker_id`), and for symmetric relations requires canonical ordering (`speaker_id < related_speaker_id`) so each undirected relationship is stored once without reverse duplicates.
+
+Following MusicBrainz, each edge also carries optional lifecycle columns (`is_ended BOOLEAN NULL`, `start_year SMALLINT NULL`, and `end_year SMALLINT NULL`). This allows representing ended relationships such as former spouses or partners (`is_ended = TRUE`) even when divorce or end dates are unknown (`end_year = NULL`), while still storing `P580`/`P582` years when available and enforcing `end_year IS NULL OR is_ended IS TRUE`.
+
+Like `public.speakers`, rows track `source`, `is_verified`, `last_seen_at`, `created_at`, and `updated_at` so automated syncs protect manually curated entries and avoid silent deletions.
+
+### Consequences
+
+`public.speakers` stays clean and normalized while supporting arbitrarily complex family graphs. Because relationships only reference existing rows in `public.speakers` via immutable surrogate IDs, links survive upstream Wikidata redirects, only connect public voice actors already in the database, and are directly queryable with PostgreSQL `WITH RECURSIVE` family tree queries.

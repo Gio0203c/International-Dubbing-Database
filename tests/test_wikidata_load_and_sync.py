@@ -423,3 +423,86 @@ def test_partial_dates_sync_backfill_and_leap_year_safety(pg_env: None) -> None:
 
     assert r1 == {"birth_year": 1999, "birth_month": None, "birth_day": None}
     assert r2 == {"birth_year": 1980, "birth_month": 6, "birth_day": 15}
+
+
+def test_speaker_relationships_constraints(pg_env: None) -> None:
+    with transaction() as conn:
+        ids = []
+        for idx in range(1, 4):
+            row = conn.execute(
+                """
+                INSERT INTO public.speakers (display_name, sort_name)
+                VALUES (%s, %s)
+                RETURNING id
+                """,
+                (f"Speaker {idx}", f"{idx}, Speaker"),
+            ).fetchone()
+            ids.append(int(row["id"]))
+
+        s1, s2, s3 = ids
+        # Valid directed parent_of works in both ID directions, and symmetric links in canonical order
+        # including ended relationships with unknown end_year and full start/end years
+        conn.execute(
+            """
+            INSERT INTO public.speaker_relationships (
+                speaker_id, related_speaker_id, relationship_type, is_ended, start_year, end_year
+            )
+            VALUES
+                (%s, %s, 'parent_of', NULL, NULL, NULL),
+                (%s, %s, 'parent_of', NULL, NULL, NULL),
+                (%s, %s, 'sibling', NULL, NULL, NULL),
+                (%s, %s, 'spouse', TRUE, NULL, NULL),
+                (%s, %s, 'partner', TRUE, 1995, 2002),
+                (%s, %s, 'relative', NULL, NULL, NULL)
+            """,
+            (s1, s2, s3, s1, s1, s2, s1, s3, s1, s2, s2, s3),
+        )
+        rel_count = conn.execute("SELECT COUNT(*) AS n FROM public.speaker_relationships").fetchone()["n"]
+    assert rel_count == 6
+
+    # Self-links, reversed symmetric pairs, unknown types, and invalid lifecycle dates must fail CHECK
+    check_bad = [
+        (s1, s1, "sibling", None, None, None),
+        (s2, s1, "sibling", None, None, None),
+        (s3, s1, "spouse", None, None, None),
+        (s2, s1, "partner", None, None, None),
+        (s3, s2, "relative", None, None, None),
+        (s1, s2, "friend", None, None, None),
+        (s2, s3, "spouse", True, 2000, 1995),
+        (s2, s3, "spouse", False, 1995, 2002),
+        (s2, s3, "spouse", None, 1995, 2002),
+    ]
+    for a, b, rtype, ended, y_start, y_end in check_bad:
+        with pytest.raises(psycopg.errors.CheckViolation):
+            with transaction() as conn:
+                conn.execute(
+                    """
+                    INSERT INTO public.speaker_relationships (
+                        speaker_id, related_speaker_id, relationship_type, is_ended, start_year, end_year
+                    )
+                    VALUES (%s, %s, %s, %s, %s, %s)
+                    """,
+                    (a, b, rtype, ended, y_start, y_end),
+                )
+
+    # Duplicate edge must fail UNIQUE
+    with pytest.raises(psycopg.errors.UniqueViolation):
+        with transaction() as conn:
+            conn.execute(
+                """
+                INSERT INTO public.speaker_relationships (speaker_id, related_speaker_id, relationship_type)
+                VALUES (%s, %s, 'sibling')
+                """,
+                (s1, s2),
+            )
+
+    # Non-existent speaker must fail FOREIGN KEY
+    with pytest.raises(psycopg.errors.ForeignKeyViolation):
+        with transaction() as conn:
+            conn.execute(
+                """
+                INSERT INTO public.speaker_relationships (speaker_id, related_speaker_id, relationship_type)
+                VALUES (%s, 99999, 'parent_of')
+                """,
+                (s1,),
+            )
