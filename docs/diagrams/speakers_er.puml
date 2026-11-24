@@ -1,0 +1,59 @@
+@startuml speakers_er
+hide circle
+skinparam linetype ortho
+
+package "staging schema" {
+  entity "staging.wikidata_raw" as wikidata_raw {
+    * id : BIGINT <<PK, identity>>
+    --
+    run_id : BIGINT
+    * wikidata_qid : TEXT
+    * payload : JSONB
+    * payload_hash : TEXT
+    * fetched_at : TIMESTAMPTZ
+  }
+}
+
+package "public schema" {
+  entity "public.speakers" as speakers {
+    * id : BIGINT <<PK, identity>>
+    * public_id : TEXT <<UK, generated>>
+    --
+    * display_name : TEXT
+    * sort_name : TEXT
+    legal_name : TEXT
+    birth_year : SMALLINT
+    death_year : SMALLINT
+    gender : TEXT
+    native_lang : TEXT
+    country_code : TEXT
+    --
+    wikidata_qid : TEXT <<UK>>
+    imdb_nconst : TEXT <<UK>>
+    tmdb_person_id : INTEGER <<UK>>
+    --
+    * primary_source : TEXT
+    * is_verified : BOOLEAN
+    last_seen_at : TIMESTAMPTZ
+    * created_at : TIMESTAMPTZ
+    * updated_at : TIMESTAMPTZ
+  }
+
+  entity "public.etl_runs" as etl_runs {
+    * id : BIGINT <<PK, identity>>
+    --
+    * source : TEXT
+    * status : TEXT
+    * started_at : TIMESTAMPTZ
+    finished_at : TIMESTAMPTZ
+    * rows_extracted : INTEGER
+    * rows_inserted : INTEGER
+    * rows_updated : INTEGER
+    * rows_discarded : INTEGER
+    error_message : TEXT
+  }
+}
+
+etl_runs ||..o{ wikidata_raw : "logical run reference (no rigid FK)"
+wikidata_raw ..> speakers : "transformed & upserted via wikidata_qid"
+@enduml
