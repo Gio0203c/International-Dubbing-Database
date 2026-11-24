@@ -295,21 +295,59 @@ def parse_tmdb_person_id(raw_ids: str | None) -> int | None:
 def build_sort_name(display_name: str, raw_family_names: str | None) -> str:
     """Build a MusicBrainz-style sort_name ('Surname, Given') when safe.
 
-    Falls back to display_name when P734 family names are absent or do not
-    match the suffix of display_name (for example mononyms or stage names).
+    Peels one or more P734 family-name tokens from the right side of
+    display_name (supporting double surnames such as 'Piacentini Cattaneo'
+    or hyphenated double surnames like 'Piacentini-Cattaneo') while
+    requiring a whitespace boundary between the given name and surname block.
+    Falls back to display_name when P734 is absent or does not match.
     """
     candidates = sorted(
         split_multi(raw_family_names),
         key=lambda name: (-len(name), name),
     )
-    lower_display = display_name.casefold()
-    for family_name in candidates:
-        suffix = f" {family_name}".casefold()
-        if lower_display.endswith(suffix):
-            prefix = display_name[: -len(family_name)].strip()
-            surname = display_name[-len(family_name) :].strip()
-            if prefix and surname:
-                return f"{surname}, {prefix}"
+    if not candidates:
+        return display_name
+
+    remaining = display_name
+    best_split: tuple[str, str] | None = None
+
+    while remaining:
+        lower_remaining = remaining.casefold()
+        matched_cut: int | None = None
+        matched_on_space = False
+
+        for family_name in candidates:
+            token_len = len(family_name)
+            if len(remaining) <= token_len:
+                continue
+            if not lower_remaining.endswith(family_name.casefold()):
+                continue
+            boundary_idx = len(remaining) - token_len - 1
+            boundary_char = remaining[boundary_idx]
+            if boundary_char == " ":
+                matched_cut = boundary_idx
+                matched_on_space = True
+                break
+            if boundary_char == "-" and matched_cut is None:
+                matched_cut = boundary_idx
+
+        if matched_cut is None:
+            break
+
+        prefix = remaining[:matched_cut].strip()
+        if not prefix:
+            break
+
+        if matched_on_space:
+            surname = display_name[matched_cut + 1 :].strip()
+            if surname:
+                best_split = (surname, prefix)
+
+        remaining = prefix
+
+    if best_split is not None:
+        surname, prefix = best_split
+        return f"{surname}, {prefix}"
     return display_name
 
 

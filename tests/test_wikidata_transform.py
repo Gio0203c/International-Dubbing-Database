@@ -109,6 +109,38 @@ def test_build_sort_name_handles_surnames_compound_names_and_fallbacks() -> None
     assert build_sort_name("Nanni Stage", "Baldini") == "Nanni Stage"
     # Longer compound surname matches ahead of a shorter suffix fragment
     assert build_sort_name("Marco De Luca", "Luca|De Luca") == "De Luca, Marco"
+    assert build_sort_name("Federica De Bortoli", "De Bortoli|de Bortoli") == "De Bortoli, Federica"
+    # Multiple space- and hyphen-separated P734 family names peel right-to-left cleanly
+    assert (
+        build_sort_name("Giulia Maria Piacentini Cattaneo", "Piacentini|Cattaneo")
+        == "Piacentini Cattaneo, Giulia Maria"
+    )
+    assert (
+        build_sort_name("Giulia Maria Piacentini-Cattaneo", "Piacentini|Cattaneo")
+        == "Piacentini-Cattaneo, Giulia Maria"
+    )
+    assert (
+        build_sort_name("Giulia Maria Piacentini Cattaneo", "Cattaneo")
+        == "Cattaneo, Giulia Maria Piacentini"
+    )
+    assert (
+        build_sort_name("Giulia Maria Piacentini Cattaneo", "Piacentini")
+        == "Giulia Maria Piacentini Cattaneo"
+    )
+    assert (
+        build_sort_name("Francesco Caruso Cardelli", "Cardelli|Caruso")
+        == "Caruso Cardelli, Francesco"
+    )
+    assert (
+        build_sort_name("Nicola Bartolini Carrassi", "Bartolini|Carrassi")
+        == "Bartolini Carrassi, Nicola"
+    )
+    assert (
+        build_sort_name("Riccardo Suarez Puertas", "Suarez|Puertas")
+        == "Suarez Puertas, Riccardo"
+    )
+    # Hyphenated given name alone never splits on the hyphen without a space boundary
+    assert build_sort_name("Maria-Rosa", "Rosa") == "Maria-Rosa"
 
 
 def test_parse_legal_name_omits_duplicates_of_display_name() -> None:
