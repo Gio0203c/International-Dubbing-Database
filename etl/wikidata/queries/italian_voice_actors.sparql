@@ -1,0 +1,70 @@
+# Italian voice actors pilot slice from Wikidata Query Service (WDQS).
+#
+# Scope anchors:
+#   - wdt:P31 wd:Q5                  human
+#   - wdt:P27 wd:Q38                 country of citizenship: Italy (pilot slice)
+#   - wdt:P106/wdt:P279* wd:Q2405480 voice actor or subclass (such as dub actor Q11481802)
+#
+# Aggregation:
+#   Returns exactly one row per Wikidata entity (?person). Multi-valued
+#   properties are concatenated with "|" and resolved deterministically in
+#   etl/wikidata/transform.py to avoid Cartesian product row duplication.
+
+PREFIX hint: <http://www.bigdata.com/queryHints#>
+PREFIX rdfs: <http://www.w3.org/2000/01/rdf-schema#>
+PREFIX wd: <http://www.wikidata.org/entity/>
+PREFIX wdt: <http://www.wikidata.org/prop/direct/>
+
+SELECT
+  ?person
+  (COALESCE(SAMPLE(?labelIt), SAMPLE(?labelMul), SAMPLE(?labelEn)) AS ?displayName)
+  (GROUP_CONCAT(DISTINCT STR(?familyName); SEPARATOR="|") AS ?familyNames)
+  (GROUP_CONCAT(DISTINCT STR(?legalName); SEPARATOR="|") AS ?legalNames)
+  (GROUP_CONCAT(DISTINCT STR(?birthDate); SEPARATOR="|") AS ?birthDates)
+  (GROUP_CONCAT(DISTINCT STR(?deathDate); SEPARATOR="|") AS ?deathDates)
+  (GROUP_CONCAT(DISTINCT STR(?gender); SEPARATOR="|") AS ?genderUris)
+  (GROUP_CONCAT(DISTINCT STR(?nativeLangCode); SEPARATOR="|") AS ?nativeLangCodes)
+  (GROUP_CONCAT(DISTINCT STR(?countryCode); SEPARATOR="|") AS ?countryCodes)
+  (GROUP_CONCAT(DISTINCT STR(?imdbId); SEPARATOR="|") AS ?imdbIds)
+  (GROUP_CONCAT(DISTINCT STR(?tmdbId); SEPARATOR="|") AS ?tmdbIds)
+WHERE {
+  {
+    SELECT DISTINCT ?person WHERE {
+      hint:SubQuery hint:runOnce true .
+      ?occ wdt:P279* wd:Q2405480 .
+      ?person wdt:P106 ?occ ;
+              wdt:P27 wd:Q38 ;
+              wdt:P31 wd:Q5 .
+    }
+  }
+
+  OPTIONAL { ?person rdfs:label ?labelIt . FILTER(LANG(?labelIt) = "it") }
+  OPTIONAL { ?person rdfs:label ?labelMul . FILTER(LANG(?labelMul) = "mul") }
+  OPTIONAL { ?person rdfs:label ?labelEn . FILTER(LANG(?labelEn) = "en") }
+
+  OPTIONAL {
+    ?person wdt:P734 ?familyNameItem .
+    ?familyNameItem rdfs:label ?familyName .
+    FILTER(LANG(?familyName) IN ("it", "mul", "en"))
+  }
+
+  OPTIONAL { ?person wdt:P1477 ?legalName . }
+  OPTIONAL { ?person wdt:P569 ?birthDate . }
+  OPTIONAL { ?person wdt:P570 ?deathDate . }
+  OPTIONAL { ?person wdt:P21 ?gender . }
+
+  OPTIONAL {
+    ?person wdt:P103 ?nativeLangItem .
+    ?nativeLangItem wdt:P218 ?nativeLangCode .
+  }
+
+  OPTIONAL {
+    ?person wdt:P27 ?countryItem .
+    ?countryItem wdt:P297 ?countryCode .
+  }
+
+  OPTIONAL { ?person wdt:P345 ?imdbId . }
+  OPTIONAL { ?person wdt:P4985 ?tmdbId . }
+}
+GROUP BY ?person
+ORDER BY ?person
