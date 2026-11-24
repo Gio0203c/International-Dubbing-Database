@@ -23,7 +23,11 @@ package "public schema" {
     * sort_name : TEXT
     legal_name : TEXT
     birth_year : SMALLINT
+    birth_month : SMALLINT
+    birth_day : SMALLINT
     death_year : SMALLINT
+    death_month : SMALLINT
+    death_day : SMALLINT
     gender : TEXT
     native_lang : TEXT
     country_code : TEXT

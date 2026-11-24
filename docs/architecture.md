@@ -50,7 +50,7 @@ Only `display_name`, `sort_name`, primary/public keys, and technical audit field
 
 Name representation follows MusicBrainz: `display_name` holds the public credited name (for example `Domitilla D'Amico`) and `sort_name` holds the alphabetical sorting form (for example `D'Amico, Domitilla`, falling back to `display_name` when no inverted form is known or applicable). This allows fast indexed sorting by surname without forcing a Western first/last split.
 
-Years (`birth_year`, `death_year`) are stored as `SMALLINT` rather than full `DATE` values to handle partial date precision cleanly without inventing placeholder `YYYY-01-01` dates. Multi-valued attributes such as spoken languages (`P1412`) and the long tail of external IDs (AniList, Anime News Network, MusicBrainz, and others) remain preserved in `staging.wikidata_raw` and will be modeled in dedicated normalized bridge tables (`speaker_languages`, `speaker_external_ids`) in future migrations rather than widening `public.speakers`.
+Birth and death dates are stored as separate `SMALLINT` components (`birth_year`, `birth_month`, `birth_day` and `death_year`, `death_month`, `death_day`) rather than SQL `DATE` values to handle partial precision cleanly without inventing placeholder dates (see ADR-004). Multi-valued attributes such as spoken languages (`P1412`) and the long tail of external IDs (AniList, Anime News Network, MusicBrainz, and others) remain preserved in `staging.wikidata_raw` and will be modeled in dedicated normalized bridge tables (`speaker_languages`, `speaker_external_ids`) in future migrations rather than widening `public.speakers`.
 
 ### Column Specification
 
@@ -62,7 +62,11 @@ Years (`birth_year`, `death_year`) are stored as `SMALLINT` rather than full `DA
 | `sort_name` | `TEXT NOT NULL CHECK (btrim(sort_name) <> '')` | Alphabetical sort key (MusicBrainz style) |
 | `legal_name` | `TEXT NULL` | Legal or birth name when different from `display_name` |
 | `birth_year` | `SMALLINT NULL CHECK (birth_year BETWEEN 1850 AND 2100)` | Year of birth |
+| `birth_month` | `SMALLINT NULL CHECK (birth_month BETWEEN 1 AND 12)` | Month of birth (only when upstream precision includes month) |
+| `birth_day` | `SMALLINT NULL CHECK (birth_day BETWEEN 1 AND 31)` | Day of birth (requires `birth_month`; calendar-validated) |
 | `death_year` | `SMALLINT NULL CHECK (death_year BETWEEN 1850 AND 2100)` + `>= birth_year` | Year of death |
+| `death_month` | `SMALLINT NULL CHECK (death_month BETWEEN 1 AND 12)` | Month of death (only when upstream precision includes month) |
+| `death_day` | `SMALLINT NULL CHECK (death_day BETWEEN 1 AND 31)` | Day of death (requires `death_month`; calendar-validated) |
 | `gender` | `TEXT NULL CHECK (gender IN ('female', 'male', 'non_binary', 'other'))` | Controlled vocabulary using `TEXT` + `CHECK` for easy evolution |
 | `native_lang` | `TEXT NULL CHECK (native_lang ~ '^[a-z]{2}$')` | ISO 639-1 native language code (`P103`) |
 | `country_code` | `TEXT NULL CHECK (country_code ~ '^[A-Z]{2}$')` | Primary ISO 3166-1 alpha-2 country code |
@@ -90,3 +94,19 @@ Loading into `public.speakers` runs inside a transaction using idempotent UPSERT
 To protect curated data, rows with `is_verified = TRUE` only receive missing values through `COALESCE` during automated syncs; existing verified fields are never overwritten. When future sources are integrated, the loader resolves existing speakers by cascading across bridge identifiers (`wikidata_qid`, then `imdb_nconst`, then `tmdb_person_id`) before inserting a new row, avoiding `UNIQUE` constraint collisions across sources.
 
 Automated syncs never delete rows from `public.speakers` if an entry disappears upstream. Instead, confirmed rows update `last_seen_at`, making upstream drift or Wikidata redirects easy to detect and review safely. Before writing to `public`, the sync runner applies a volume circuit breaker: if the extracted count drops abnormally compared to the previous successful run (for example below 70%), the write is aborted and logged. Every execution records its status and row counts in `public.etl_runs`.
+
+## ADR-004: MusicBrainz-Style Partial Birth and Death Dates
+
+### Context
+
+Biographical dates for voice actors frequently have incomplete precision across public sources. A performer may have a year only, a year and month, a full date, or a month and day without a birth year (very common among Japanese seiyū and performers who keep their age private). Standard SQL `DATE` columns cannot represent partial dates without inventing placeholder values such as `YYYY-01-01` or a dummy year. In addition, Wikidata direct claims (`wdt:P569`, `wdt:P570`) serialize year-only and month-only dates as `YYYY-01-01T00:00:00Z`, which creates false January 1st birthdays if parsed naively.
+
+### Decision
+
+`public.speakers` stores `birth_year`, `birth_month`, and `birth_day` (and symmetrically `death_year`, `death_month`, and `death_day`) as separate `SMALLINT NULL` columns, following MusicBrainz. Database `CHECK` constraints enforce valid ranges, prevent a day without a month, validate calendar month lengths including Gregorian leap years, and enforce chronological order between birth and death even within the same year. A partial index `idx_speakers_birthday` on `(birth_month, birth_day)` supports fast day-and-month lookups.
+
+The Wikidata ETL will query `wikibase:timePrecision` (`11` for day, `10` for month, `9` for year) alongside the timestamp before populating month or day columns.
+
+### Consequences
+
+All four partial-date shapes (year only, year and month, month and day without year, and full date) are stored cleanly with zero placeholder values. Birthday lookups remain fast even when birth years are unknown, and false January 1st dates are prevented at extraction time.

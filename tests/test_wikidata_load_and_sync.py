@@ -10,6 +10,7 @@ from collections.abc import Iterator
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
+import psycopg
 import pytest
 
 from etl.db import transaction
@@ -79,6 +80,13 @@ def pg_env(monkeypatch: pytest.MonkeyPatch) -> Iterator[None]:
         stderr=subprocess.DEVNULL,
     )
     try:
+        monkeypatch.delenv("DATABASE_URL", raising=False)
+        monkeypatch.setenv("PGHOST", str(pg_sock))
+        monkeypatch.delenv("PGPORT", raising=False)
+        monkeypatch.setenv("PGDATABASE", "iddb_test")
+        monkeypatch.setenv("PGUSER", os.getenv("USER", "postgres"))
+        monkeypatch.delenv("PGPASSWORD", raising=False)
+
         subprocess.run(
             [str(pg_bin / "createdb"), "-h", str(pg_sock), "iddb_test"],
             check=True,
@@ -100,12 +108,6 @@ def pg_env(monkeypatch: pytest.MonkeyPatch) -> Iterator[None]:
                 check=True,
             )
 
-        monkeypatch.delenv("DATABASE_URL", raising=False)
-        monkeypatch.setenv("PGHOST", str(pg_sock))
-        monkeypatch.delenv("PGPORT", raising=False)
-        monkeypatch.setenv("PGDATABASE", "iddb_test")
-        monkeypatch.setenv("PGUSER", os.getenv("USER", "postgres"))
-        monkeypatch.delenv("PGPASSWORD", raising=False)
         yield
     finally:
         subprocess.run(
@@ -310,3 +312,48 @@ def test_circuit_breaker_aborts_write_and_audits_run(pg_env: None) -> None:
     assert last_run["rows_extracted"] == 1
     assert last_run["rows_inserted"] == 0
     assert "Volume drop detected" in last_run["error_message"]
+
+
+def test_partial_dates_constraints(pg_env: None) -> None:
+    valid_cases = [
+        ("Year Only", "Only, Year", 1975, None, None),
+        ("Year Month", "Month, Year", 1975, 8, None),
+        ("Month Day Only", "Only, Month Day", None, 5, 14),
+        ("Leap Day No Year", "Year, Leap Day No", None, 2, 29),
+        ("Leap Full 2000", "2000, Leap Full", 2000, 2, 29),
+    ]
+    with transaction() as conn:
+        for display_name, sort_name, year, month, day in valid_cases:
+            conn.execute(
+                """
+                INSERT INTO public.speakers (
+                    display_name, sort_name, birth_year, birth_month, birth_day
+                )
+                VALUES (%s, %s, %s, %s, %s)
+                """,
+                (display_name, sort_name, year, month, day),
+            )
+        count = conn.execute("SELECT COUNT(*) AS n FROM public.speakers").fetchone()["n"]
+    assert count == len(valid_cases)
+
+    invalid_cases = [
+        (1975, None, 15, None, None, None),
+        (1980, 4, 31, None, None, None),
+        (1999, 2, 29, None, None, None),
+        (1900, 2, 29, None, None, None),
+        (1980, 5, 10, 1980, 3, 1),
+    ]
+    for b_y, b_m, b_d, d_y, d_m, d_d in invalid_cases:
+        with pytest.raises(psycopg.errors.CheckViolation):
+            with transaction() as conn:
+                conn.execute(
+                    """
+                    INSERT INTO public.speakers (
+                        display_name, sort_name,
+                        birth_year, birth_month, birth_day,
+                        death_year, death_month, death_day
+                    )
+                    VALUES ('Invalid', 'Invalid', %s, %s, %s, %s, %s, %s)
+                    """,
+                    (b_y, b_m, b_d, d_y, d_m, d_d),
+                )
