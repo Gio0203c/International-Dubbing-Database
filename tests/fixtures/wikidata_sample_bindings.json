@@ -1,0 +1,86 @@
+[
+  {
+    "person": {"type": "uri", "value": "http://www.wikidata.org/entity/Q3870135"},
+    "displayName": {"type": "literal", "value": "Nanni Baldini"},
+    "familyNames": {"type": "literal", "value": "Baldini"},
+    "legalNames": {"type": "literal", "value": "Giovanni Baldini"},
+    "birthDates": {"type": "literal", "value": "1975-08-13T00:00:00Z"},
+    "deathDates": {"type": "literal", "value": ""},
+    "genderUris": {"type": "literal", "value": "http://www.wikidata.org/entity/Q6581097"},
+    "nativeLangCodes": {"type": "literal", "value": ""},
+    "countryCodes": {"type": "literal", "value": "IT"},
+    "imdbIds": {"type": "literal", "value": "nm1129594"},
+    "tmdbIds": {"type": "literal", "value": ""}
+  },
+  {
+    "person": {"type": "uri", "value": "http://www.wikidata.org/entity/Q3713381"},
+    "displayName": {"type": "literal", "value": "Domitilla D'Amico"},
+    "familyNames": {"type": "literal", "value": "D'Amico"},
+    "legalNames": {"type": "literal", "value": "Domitilla D'Amico"},
+    "birthDates": {"type": "literal", "value": "1982-09-05T00:00:00Z"},
+    "deathDates": {"type": "literal", "value": ""},
+    "genderUris": {"type": "literal", "value": "http://www.wikidata.org/entity/Q6581072"},
+    "nativeLangCodes": {"type": "literal", "value": ""},
+    "countryCodes": {"type": "literal", "value": "IT"},
+    "imdbIds": {"type": "literal", "value": "nm0195120"},
+    "tmdbIds": {"type": "literal", "value": "1137540"}
+  },
+  {
+    "person": {"type": "uri", "value": "http://www.wikidata.org/entity/Q3297658"},
+    "displayName": {"type": "literal", "value": "Perla Liberatori"},
+    "familyNames": {"type": "literal", "value": ""},
+    "legalNames": {"type": "literal", "value": ""},
+    "birthDates": {"type": "literal", "value": "1981-11-10T00:00:00Z"},
+    "deathDates": {"type": "literal", "value": ""},
+    "genderUris": {"type": "literal", "value": "http://www.wikidata.org/entity/Q6581072"},
+    "nativeLangCodes": {"type": "literal", "value": ""},
+    "countryCodes": {"type": "literal", "value": "IT"},
+    "imdbIds": {"type": "literal", "value": "nm2959823"},
+    "tmdbIds": {"type": "literal", "value": "1094814"}
+  },
+  {
+    "person": {"type": "uri", "value": "http://www.wikidata.org/entity/Q117085918"},
+    "displayName": {"type": "literal", "value": "Chiara Fabiano"},
+    "familyNames": {"type": "literal", "value": "Fabiano"},
+    "legalNames": {"type": "literal", "value": ""},
+    "birthDates": {"type": "literal", "value": "2004-09-20T00:00:00Z"},
+    "deathDates": {"type": "literal", "value": ""},
+    "genderUris": {"type": "literal", "value": "http://www.wikidata.org/entity/Q6581072"},
+    "nativeLangCodes": {"type": "literal", "value": "it"},
+    "countryCodes": {"type": "literal", "value": "IT"},
+    "imdbIds": {"type": "literal", "value": "nm5933163"},
+    "tmdbIds": {"type": "literal", "value": ""}
+  },
+  {
+    "person": {"type": "uri", "value": "http://www.wikidata.org/entity/Q3764098"},
+    "displayName": {"type": "literal", "value": "Dirty  Multi   Actor"},
+    "familyNames": {"type": "literal", "value": "Actor|Multi Actor"},
+    "legalNames": {"type": "literal", "value": "http://www.wikidata.org/.well-known/genid/abc123"},
+    "birthDates": {"type": "literal", "value": "http://www.wikidata.org/.well-known/genid/xyz|1975-03-01T00:00:00Z|1974-12-31T00:00:00Z"},
+    "deathDates": {"type": "literal", "value": "_:b0"},
+    "genderUris": {"type": "literal", "value": "http://www.wikidata.org/entity/Q48270"},
+    "nativeLangCodes": {"type": "literal", "value": "ITA|EN|fr"},
+    "countryCodes": {"type": "literal", "value": "US|IT|invalid"},
+    "imdbIds": {"type": "literal", "value": "tt0111161|nm9999999|nm0000123|bad"},
+    "tmdbIds": {"type": "literal", "value": "-5|0|abc|999999999999|4500|320"}
+  },
+  {
+    "person": {"type": "uri", "value": "http://www.wikidata.org/entity/Q9990001"},
+    "displayName": {"type": "literal", "value": "Bad Lifespan Speaker"},
+    "familyNames": {"type": "literal", "value": "Speaker"},
+    "birthDates": {"type": "literal", "value": "1990-01-01T00:00:00Z"},
+    "deathDates": {"type": "literal", "value": "1980-01-01T00:00:00Z"}
+  },
+  {
+    "person": {"type": "uri", "value": "http://www.wikidata.org/entity/Q0"},
+    "displayName": {"type": "literal", "value": "Invalid QID Zero"}
+  },
+  {
+    "person": {"type": "uri", "value": "http://www.wikidata.org/entity/Q9990002"},
+    "displayName": {"type": "literal", "value": "   "}
+  },
+  {
+    "person": {"type": "uri", "value": "http://www.wikidata.org/entity/Q3870135"},
+    "displayName": {"type": "literal", "value": "Nanni Baldini"}
+  }
+]
