@@ -1,0 +1,92 @@
+# Family and kinship relationships for Italian voice actors from WDQS.
+#
+# Properties extracted:
+#   - P22   father (directed -> parent_of after direction flip in Python)
+#   - P25   mother (directed -> parent_of after direction flip in Python)
+#   - P40   child (directed -> parent_of)
+#   - P3373 sibling (symmetric)
+#   - P26   spouse (symmetric)
+#   - P451  unmarried partner (symmetric)
+#   - P1038 relative (symmetric)
+#
+# Uses a Blazegraph named subquery (WITH ... AS %speakers) and static UNION
+# branches rather than variable predicates so WDQS avoids full-graph scans.
+# Uses p:/ps: statements excluding only DeprecatedRank (rather than BestRank)
+# so former spouses with NormalRank are still extracted alongside PreferredRank
+# spouses. Non-speaker targets are filtered out safely in Python when resolving
+# QIDs against public.speakers.
+
+PREFIX p: <http://www.wikidata.org/prop/>
+PREFIX pq: <http://www.wikidata.org/prop/qualifier/>
+PREFIX ps: <http://www.wikidata.org/prop/statement/>
+PREFIX wd: <http://www.wikidata.org/entity/>
+PREFIX wdt: <http://www.wikidata.org/prop/direct/>
+PREFIX wikibase: <http://wikiba.se/ontology#>
+
+SELECT DISTINCT
+  ?person
+  ?prop
+  ?related
+  ?startDate
+  ?endDate
+  ?endCause
+WITH {
+  SELECT DISTINCT ?person WHERE {
+    ?occ wdt:P279* wd:Q2405480 .
+    ?person wdt:P106 ?occ ;
+            wdt:P27 wd:Q38 ;
+            wdt:P31 wd:Q5 .
+  }
+} AS %speakers
+WHERE {
+  INCLUDE %speakers
+  {
+    ?person p:P22 ?stmt .
+    ?stmt ps:P22 ?related .
+    BIND("P22" AS ?prop)
+  }
+  UNION
+  {
+    ?person p:P25 ?stmt .
+    ?stmt ps:P25 ?related .
+    BIND("P25" AS ?prop)
+  }
+  UNION
+  {
+    ?person p:P40 ?stmt .
+    ?stmt ps:P40 ?related .
+    BIND("P40" AS ?prop)
+  }
+  UNION
+  {
+    ?person p:P3373 ?stmt .
+    ?stmt ps:P3373 ?related .
+    BIND("P3373" AS ?prop)
+  }
+  UNION
+  {
+    ?person p:P26 ?stmt .
+    ?stmt ps:P26 ?related .
+    BIND("P26" AS ?prop)
+  }
+  UNION
+  {
+    ?person p:P451 ?stmt .
+    ?stmt ps:P451 ?related .
+    BIND("P451" AS ?prop)
+  }
+  UNION
+  {
+    ?person p:P1038 ?stmt .
+    ?stmt ps:P1038 ?related .
+    BIND("P1038" AS ?prop)
+  }
+
+  FILTER NOT EXISTS { ?stmt wikibase:rank wikibase:DeprecatedRank }
+  FILTER(!isBlank(?related))
+
+  OPTIONAL { ?stmt pq:P580 ?startDate . }
+  OPTIONAL { ?stmt pq:P582 ?endDate . }
+  OPTIONAL { ?stmt pq:P1534 ?endCause . }
+}
+ORDER BY ?person ?prop ?related
