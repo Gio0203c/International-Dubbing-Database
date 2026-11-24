@@ -130,3 +130,27 @@ Like `public.speakers`, rows track `source`, `is_verified`, `last_seen_at`, `cre
 ### Consequences
 
 `public.speakers` stays clean and normalized while supporting arbitrarily complex family graphs. Because relationships only reference existing rows in `public.speakers` via immutable surrogate IDs, links survive upstream Wikidata redirects, only connect public voice actors already in the database, and are directly queryable with PostgreSQL `WITH RECURSIVE` family tree queries.
+
+## ADR-006: Normalized Speaker Satellite Tables (`speaker_aliases`, `speaker_languages`, `speaker_external_ids`)
+
+### Context
+
+Voice actor profiles accumulate three inherently multi-valued or long-tail attributes that do not fit inside single scalar columns on `public.speakers`:
+
+1. Alternative names, closing-credit variants, former legal or maiden names, and cross-script transliterations (for example Japanese kanji and romaji variants).
+2. Multiple native, working, or spoken languages beyond the single scalar `native_lang` hint.
+3. Dozens of regional or domain-specific external identifiers (such as AniList, MyAnimeList, Anime News Network, Behind The Voice Actors, MusicBrainz, and Wikipedia sitelinks).
+
+Storing arrays or delimited strings in `public.speakers` breaks First Normal Form and complicates indexed lookups, while adding dedicated columns for every external catalog requires schema migrations whenever a new source is integrated.
+
+### Decision
+
+Multi-valued speaker metadata is stored in three normalized `1:N` satellite tables in `sql/migrations/007_create_speaker_satellites.sql`, each referencing `public.speakers(id)` with `ON DELETE CASCADE` and carrying the standard curation and audit metadata (`source`, `is_verified`, `last_seen_at`, `created_at`, `updated_at`):
+
+- `public.speaker_aliases` records `alias_name`, optional `sort_name`, controlled `alias_type` (`stage_name`, `legal_name`, `maiden_name`, `credit_variant`, `transliteration`, `other`), optional BCP-47 `locale` (`^[a-z]{2}(-[A-Z][a-z]{3})?(-[A-Z]{2})?$`), and `is_primary`. Functional unique indexes enforce case-insensitive, whitespace-trimmed, NULL-safe uniqueness `(speaker_id, lower(btrim(alias_name)), COALESCE(locale, ''))` and at most one primary alias per `(speaker_id, COALESCE(locale, ''))`.
+- `public.speaker_languages` records two-letter ISO 639-1 `lang_code` values paired with `role` (`native`, `working`, `spoken`), enforcing `UNIQUE (speaker_id, lang_code, role)`.
+- `public.speaker_external_ids` stores `(provider, external_id)` pairs with a lowercase slug check on `provider` (`^[a-z][a-z0-9_]{1,49}$`), `UNIQUE (provider, external_id)` so one external catalog ID cannot map to two different speakers, and `CHECK (provider NOT IN ('wikidata', 'imdb', 'tmdb'))` to preserve a Single Source of Truth with the core bridge columns on `public.speakers`.
+
+### Consequences
+
+`public.speakers` remains compact and schema-stable as new providers and international scripts are added. Alias search stays fast via `lower(alias_name)`, primary bridge matching (`wikidata_qid`, `imdb_nconst`, `tmdb_person_id`) has no conflicting duplicate representation, and future ETL connectors can populate all three satellite tables idempotently without database schema changes.

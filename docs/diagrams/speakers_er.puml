@@ -60,6 +60,51 @@ package "public schema" {
     * updated_at : TIMESTAMPTZ
   }
 
+  entity "public.speaker_aliases" as speaker_aliases {
+    * id : BIGINT <<PK, identity>>
+    --
+    * speaker_id : BIGINT <<FK, UK>>
+    * alias_name : TEXT <<UK>>
+    sort_name : TEXT
+    * alias_type : TEXT
+    locale : TEXT <<UK>>
+    * is_primary : BOOLEAN
+    --
+    * source : TEXT
+    * is_verified : BOOLEAN
+    last_seen_at : TIMESTAMPTZ
+    * created_at : TIMESTAMPTZ
+    * updated_at : TIMESTAMPTZ
+  }
+
+  entity "public.speaker_languages" as speaker_languages {
+    * id : BIGINT <<PK, identity>>
+    --
+    * speaker_id : BIGINT <<FK, UK>>
+    * lang_code : TEXT <<UK>>
+    * role : TEXT <<UK>>
+    --
+    * source : TEXT
+    * is_verified : BOOLEAN
+    last_seen_at : TIMESTAMPTZ
+    * created_at : TIMESTAMPTZ
+    * updated_at : TIMESTAMPTZ
+  }
+
+  entity "public.speaker_external_ids" as speaker_external_ids {
+    * id : BIGINT <<PK, identity>>
+    --
+    * speaker_id : BIGINT <<FK>>
+    * provider : TEXT <<UK>>
+    * external_id : TEXT <<UK>>
+    --
+    * source : TEXT
+    * is_verified : BOOLEAN
+    last_seen_at : TIMESTAMPTZ
+    * created_at : TIMESTAMPTZ
+    * updated_at : TIMESTAMPTZ
+  }
+
   entity "public.etl_runs" as etl_runs {
     * id : BIGINT <<PK, identity>>
     --
@@ -77,6 +122,9 @@ package "public schema" {
 
 speakers ||--o{ speaker_relationships : "speaker_id (subject)"
 speakers ||--o{ speaker_relationships : "related_speaker_id (related)"
+speakers ||--o{ speaker_aliases : "aliases"
+speakers ||--o{ speaker_languages : "languages"
+speakers ||--o{ speaker_external_ids : "external IDs"
 etl_runs |o..o{ wikidata_raw : "logical run reference (no rigid FK)"
 wikidata_raw ..> speakers : "transformed & upserted via wikidata_qid / bridge IDs"
 @enduml

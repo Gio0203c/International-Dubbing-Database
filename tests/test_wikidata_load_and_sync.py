@@ -506,3 +506,141 @@ def test_speaker_relationships_constraints(pg_env: None) -> None:
                 """,
                 (s1,),
             )
+
+
+def test_speaker_satellites_constraints(pg_env: None) -> None:
+    with transaction() as conn:
+        s1 = int(
+            conn.execute(
+                "INSERT INTO public.speakers (display_name, sort_name) VALUES ('Speaker One', 'One, Speaker') RETURNING id"
+            ).fetchone()["id"]
+        )
+        s2 = int(
+            conn.execute(
+                "INSERT INTO public.speakers (display_name, sort_name) VALUES ('Speaker Two', 'Two, Speaker') RETURNING id"
+            ).fetchone()["id"]
+        )
+
+        conn.execute(
+            """
+            INSERT INTO public.speaker_aliases (speaker_id, alias_name, sort_name, alias_type, locale, is_primary)
+            VALUES
+                (%s, 'Tonino', NULL, 'stage_name', NULL, TRUE),
+                (%s, 'アントニオ', NULL, 'transliteration', 'ja-Latn', TRUE),
+                (%s, '張三', NULL, 'transliteration', 'zh-Hant-TW', FALSE),
+                (%s, 'Tony Variant', 'Variant, Tony', 'credit_variant', 'it', FALSE)
+            """,
+            (s1, s1, s1, s1),
+        )
+        conn.execute(
+            """
+            INSERT INTO public.speaker_languages (speaker_id, lang_code, role)
+            VALUES
+                (%s, 'it', 'native'),
+                (%s, 'it', 'working'),
+                (%s, 'en', 'spoken')
+            """,
+            (s1, s1, s1),
+        )
+        conn.execute(
+            """
+            INSERT INTO public.speaker_external_ids (speaker_id, provider, external_id)
+            VALUES
+                (%s, 'musicbrainz', '12345678-1234-1234-1234-1234567890ab'),
+                (%s, 'anilist', '10542'),
+                (%s, 'itwiki', 'Tonino_Example')
+            """,
+            (s1, s1, s1),
+        )
+
+    # Check violations across all three satellite tables
+    bad_aliases = [
+        ("   ", None, "other", None),
+        ("Valid Alias", "  ", "other", None),
+        ("Valid Alias", None, "nickname", None),
+        ("Valid Alias", None, "other", "IT"),
+        ("Valid Alias", None, "other", "italiano"),
+    ]
+    for name, sname, atype, locale in bad_aliases:
+        with pytest.raises(psycopg.errors.CheckViolation):
+            with transaction() as conn:
+                conn.execute(
+                    """
+                    INSERT INTO public.speaker_aliases (speaker_id, alias_name, sort_name, alias_type, locale)
+                    VALUES (%s, %s, %s, %s, %s)
+                    """,
+                    (s1, name, sname, atype, locale),
+                )
+
+    for bad_lang, bad_role in [("IT", "spoken"), ("ita", "spoken"), ("it", "fluent")]:
+        with pytest.raises(psycopg.errors.CheckViolation):
+            with transaction() as conn:
+                conn.execute(
+                    "INSERT INTO public.speaker_languages (speaker_id, lang_code, role) VALUES (%s, %s, %s)",
+                    (s1, bad_lang, bad_role),
+                )
+
+    for bad_provider, bad_ext in [
+        ("AniList", "1"),
+        ("a", "1"),
+        ("bad-slug", "1"),
+        ("wikidata", "Q1"),
+        ("imdb", "nm1"),
+        ("tmdb", "1"),
+        ("btva", "   "),
+    ]:
+        with pytest.raises(psycopg.errors.CheckViolation):
+            with transaction() as conn:
+                conn.execute(
+                    "INSERT INTO public.speaker_external_ids (speaker_id, provider, external_id) VALUES (%s, %s, %s)",
+                    (s1, bad_provider, bad_ext),
+                )
+
+    # Unique violations (including NULL-safe case-insensitive aliases and primary-per-locale)
+    with pytest.raises(psycopg.errors.UniqueViolation):
+        with transaction() as conn:
+            conn.execute(
+                "INSERT INTO public.speaker_aliases (speaker_id, alias_name, locale) VALUES (%s, ' tonino ', NULL)",
+                (s1,),
+            )
+
+    with pytest.raises(psycopg.errors.UniqueViolation):
+        with transaction() as conn:
+            conn.execute(
+                "INSERT INTO public.speaker_aliases (speaker_id, alias_name, locale, is_primary) VALUES (%s, 'Another', NULL, TRUE)",
+                (s1,),
+            )
+
+    with pytest.raises(psycopg.errors.UniqueViolation):
+        with transaction() as conn:
+            conn.execute(
+                "INSERT INTO public.speaker_languages (speaker_id, lang_code, role) VALUES (%s, 'it', 'native')",
+                (s1,),
+            )
+
+    with pytest.raises(psycopg.errors.UniqueViolation):
+        with transaction() as conn:
+            conn.execute(
+                "INSERT INTO public.speaker_external_ids (speaker_id, provider, external_id) VALUES (%s, 'anilist', '10542')",
+                (s2,),
+            )
+
+    # Foreign key enforcement and ON DELETE CASCADE
+    for tbl, col1, val1, col2, val2 in [
+        ("speaker_aliases", "alias_name", "Ghost", "alias_type", "other"),
+        ("speaker_languages", "lang_code", "fr", "role", "spoken"),
+        ("speaker_external_ids", "provider", "myanimelist", "external_id", "999"),
+    ]:
+        with pytest.raises(psycopg.errors.ForeignKeyViolation):
+            with transaction() as conn:
+                conn.execute(
+                    f"INSERT INTO public.{tbl} (speaker_id, {col1}, {col2}) VALUES (99999, %s, %s)",
+                    (val1, val2),
+                )
+
+    with transaction() as conn:
+        conn.execute("DELETE FROM public.speakers WHERE id = %s", (s1,))
+        alias_left = conn.execute("SELECT COUNT(*) AS n FROM public.speaker_aliases WHERE speaker_id = %s", (s1,)).fetchone()["n"]
+        lang_left = conn.execute("SELECT COUNT(*) AS n FROM public.speaker_languages WHERE speaker_id = %s", (s1,)).fetchone()["n"]
+        ext_left = conn.execute("SELECT COUNT(*) AS n FROM public.speaker_external_ids WHERE speaker_id = %s", (s1,)).fetchone()["n"]
+    assert (alias_left, lang_left, ext_left) == (0, 0, 0)
