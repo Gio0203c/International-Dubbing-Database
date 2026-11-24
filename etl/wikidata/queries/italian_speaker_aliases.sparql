@@ -1,0 +1,36 @@
+# Aliases and stage names for Italian voice actors from WDQS.
+#
+# Uses a Blazegraph named subquery (WITH ... AS %speakers) and explicit UNION
+# branches across P742 (pseudonym) and skos:altLabel (it/en/mul).
+
+PREFIX skos: <http://www.w3.org/2004/02/skos/core#>
+PREFIX wd: <http://www.wikidata.org/entity/>
+PREFIX wdt: <http://www.wikidata.org/prop/direct/>
+
+SELECT DISTINCT
+  ?person
+  ?aliasType
+  ?aliasName
+WITH {
+  SELECT DISTINCT ?person WHERE {
+    ?occ wdt:P279* wd:Q2405480 .
+    ?person wdt:P106 ?occ ;
+            wdt:P27 wd:Q38 ;
+            wdt:P31 wd:Q5 .
+  }
+} AS %speakers
+WHERE {
+  INCLUDE %speakers
+  {
+    ?person wdt:P742 ?aliasName .
+    BIND("stage_name" AS ?aliasType)
+  }
+  UNION
+  {
+    ?person skos:altLabel ?aliasName .
+    FILTER(LANG(?aliasName) IN ("it", "en", "mul"))
+    BIND("other" AS ?aliasType)
+  }
+  FILTER(!isBlank(?aliasName))
+}
+ORDER BY ?person ?aliasType ?aliasName

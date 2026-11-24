@@ -1,0 +1,35 @@
+# Native and spoken languages for Italian voice actors from WDQS.
+#
+# Extracts P103 (native language) and P1412 (languages spoken, written or signed)
+# mapped to ISO 639-1 two-letter codes via wdt:P218.
+
+PREFIX wd: <http://www.wikidata.org/entity/>
+PREFIX wdt: <http://www.wikidata.org/prop/direct/>
+
+SELECT DISTINCT
+  ?person
+  ?role
+  ?langCode
+WITH {
+  SELECT DISTINCT ?person WHERE {
+    ?occ wdt:P279* wd:Q2405480 .
+    ?person wdt:P106 ?occ ;
+            wdt:P27 wd:Q38 ;
+            wdt:P31 wd:Q5 .
+  }
+} AS %speakers
+WHERE {
+  INCLUDE %speakers
+  {
+    ?person wdt:P103 ?langItem .
+    ?langItem wdt:P218 ?langCode .
+    BIND("native" AS ?role)
+  }
+  UNION
+  {
+    ?person wdt:P1412 ?langItem .
+    ?langItem wdt:P218 ?langCode .
+    BIND("spoken" AS ?role)
+  }
+}
+ORDER BY ?person ?role ?langCode

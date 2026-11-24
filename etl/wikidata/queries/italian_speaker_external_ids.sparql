@@ -1,0 +1,61 @@
+# Long-tail external catalog identifiers and Wikipedia sitelinks for Italian voice actors.
+#
+# Excludes core bridge columns already stored on public.speakers:
+# wikidata (QID), imdb (P345), and tmdb (P4985).
+
+PREFIX schema: <http://schema.org/>
+PREFIX wd: <http://www.wikidata.org/entity/>
+PREFIX wdt: <http://www.wikidata.org/prop/direct/>
+
+SELECT DISTINCT
+  ?person
+  ?provider
+  ?externalId
+WITH {
+  SELECT DISTINCT ?person WHERE {
+    ?occ wdt:P279* wd:Q2405480 .
+    ?person wdt:P106 ?occ ;
+            wdt:P27 wd:Q38 ;
+            wdt:P31 wd:Q5 .
+  }
+} AS %speakers
+WHERE {
+  INCLUDE %speakers
+  { ?person wdt:P5099 ?externalId . BIND("mondo_doppiatori" AS ?provider) }
+  UNION
+  { ?person wdt:P4084 ?externalId . BIND("myanimelist" AS ?provider) }
+  UNION
+  { ?person wdt:P11227 ?externalId . BIND("anilist" AS ?provider) }
+  UNION
+  { ?person wdt:P9995 ?externalId . BIND("mymovies" AS ?provider) }
+  UNION
+  { ?person wdt:P214 ?externalId . BIND("viaf" AS ?provider) }
+  UNION
+  { ?person wdt:P1982 ?externalId . BIND("ann" AS ?provider) }
+  UNION
+  { ?person wdt:P5007 ?externalId . BIND("btva" AS ?provider) }
+  UNION
+  { ?person wdt:P5848 ?externalId . BIND("animeclick" AS ?provider) }
+  UNION
+  { ?person wdt:P213 ?externalId . BIND("isni" AS ?provider) }
+  UNION
+  { ?person wdt:P1266 ?externalId . BIND("allocine" AS ?provider) }
+  UNION
+  { ?person wdt:P434 ?externalId . BIND("musicbrainz" AS ?provider) }
+  UNION
+  {
+    ?article schema:about ?person ;
+             schema:isPartOf <https://it.wikipedia.org/> .
+    BIND(STR(?article) AS ?externalId)
+    BIND("itwiki" AS ?provider)
+  }
+  UNION
+  {
+    ?article schema:about ?person ;
+             schema:isPartOf <https://en.wikipedia.org/> .
+    BIND(STR(?article) AS ?externalId)
+    BIND("enwiki" AS ?provider)
+  }
+  FILTER(!isBlank(?externalId))
+}
+ORDER BY ?person ?provider ?externalId
