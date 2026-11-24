@@ -1,0 +1,1 @@
+"""Wikidata ETL pipeline modules."""
