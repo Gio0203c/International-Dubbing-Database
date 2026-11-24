@@ -10,7 +10,12 @@ from typing import Any
 
 import psycopg
 
-from etl.wikidata.transform import SpeakerRecord
+from etl.wikidata.transform import (
+    PartialDate,
+    SpeakerRecord,
+    is_lifespan_order_valid,
+    is_valid_partial_date,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -44,7 +49,11 @@ def _fetch_existing_candidates(
             sort_name,
             legal_name,
             birth_year,
+            birth_month,
+            birth_day,
             death_year,
+            death_month,
+            death_day,
             gender,
             native_lang,
             country_code,
@@ -180,7 +189,11 @@ def _insert_speaker(
             sort_name,
             legal_name,
             birth_year,
+            birth_month,
+            birth_day,
             death_year,
+            death_month,
+            death_day,
             gender,
             native_lang,
             country_code,
@@ -190,7 +203,7 @@ def _insert_speaker(
             primary_source,
             last_seen_at
         )
-        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
         ON CONFLICT (wikidata_qid) DO UPDATE SET
             display_name = CASE
                 WHEN public.speakers.is_verified THEN public.speakers.display_name
@@ -208,9 +221,25 @@ def _insert_speaker(
                 WHEN public.speakers.is_verified THEN COALESCE(public.speakers.birth_year, EXCLUDED.birth_year)
                 ELSE COALESCE(EXCLUDED.birth_year, public.speakers.birth_year)
             END,
+            birth_month = CASE
+                WHEN public.speakers.is_verified THEN COALESCE(public.speakers.birth_month, EXCLUDED.birth_month)
+                ELSE COALESCE(EXCLUDED.birth_month, public.speakers.birth_month)
+            END,
+            birth_day = CASE
+                WHEN public.speakers.is_verified THEN COALESCE(public.speakers.birth_day, EXCLUDED.birth_day)
+                ELSE COALESCE(EXCLUDED.birth_day, public.speakers.birth_day)
+            END,
             death_year = CASE
                 WHEN public.speakers.is_verified THEN COALESCE(public.speakers.death_year, EXCLUDED.death_year)
                 ELSE COALESCE(EXCLUDED.death_year, public.speakers.death_year)
+            END,
+            death_month = CASE
+                WHEN public.speakers.is_verified THEN COALESCE(public.speakers.death_month, EXCLUDED.death_month)
+                ELSE COALESCE(EXCLUDED.death_month, public.speakers.death_month)
+            END,
+            death_day = CASE
+                WHEN public.speakers.is_verified THEN COALESCE(public.speakers.death_day, EXCLUDED.death_day)
+                ELSE COALESCE(EXCLUDED.death_day, public.speakers.death_day)
             END,
             gender = CASE
                 WHEN public.speakers.is_verified THEN COALESCE(public.speakers.gender, EXCLUDED.gender)
@@ -240,7 +269,11 @@ def _insert_speaker(
             sort_name,
             legal_name,
             birth_year,
+            birth_month,
+            birth_day,
             death_year,
+            death_month,
+            death_day,
             gender,
             native_lang,
             country_code,
@@ -256,7 +289,11 @@ def _insert_speaker(
             record.sort_name,
             record.legal_name,
             record.birth_year,
+            record.birth_month,
+            record.birth_day,
             record.death_year,
+            record.death_month,
+            record.death_day,
             record.gender,
             record.native_lang,
             record.country_code,
@@ -271,6 +308,52 @@ def _insert_speaker(
     return row
 
 
+def _merge_partial_date(
+    existing_date: PartialDate,
+    incoming_date: PartialDate,
+    *,
+    is_verified: bool,
+) -> PartialDate:
+    """Merge partial date parts safely without violating calendar constraints."""
+    primary, secondary = (
+        (existing_date, incoming_date)
+        if is_verified
+        else (incoming_date, existing_date)
+    )
+
+    year = primary.year if primary.year is not None else secondary.year
+    years_compatible = (
+        primary.year is None
+        or secondary.year is None
+        or primary.year == secondary.year
+    )
+
+    if primary.month is not None:
+        month = primary.month
+    elif years_compatible:
+        month = secondary.month
+    else:
+        month = None
+
+    months_compatible = (
+        primary.month is None
+        or secondary.month is None
+        or primary.month == secondary.month
+    )
+
+    if primary.day is not None:
+        day = primary.day
+    elif years_compatible and months_compatible and month is not None:
+        day = secondary.day
+    else:
+        day = None
+
+    candidate = PartialDate(year=year, month=month, day=day)
+    if is_valid_partial_date(candidate.year, candidate.month, candidate.day):
+        return candidate
+    return existing_date
+
+
 def _merge_fields(
     existing: dict[str, Any],
     record: SpeakerRecord,
@@ -278,32 +361,41 @@ def _merge_fields(
     safe_tmdb: int | None,
 ) -> dict[str, Any]:
     """Compute desired column values respecting is_verified precedence."""
-    if existing["is_verified"]:
-        merged_birth = (
-            existing["birth_year"]
-            if existing["birth_year"] is not None
-            else record.birth_year
-        )
-        merged_death = (
-            existing["death_year"]
-            if existing["death_year"] is not None
-            else record.death_year
-        )
-        # Never violate death_year >= birth_year when filling a NULL lifespan field.
-        if (
-            merged_birth is not None
-            and merged_death is not None
-            and merged_death < merged_birth
-        ):
-            merged_birth = existing["birth_year"]
-            merged_death = existing["death_year"]
+    existing_birth = PartialDate(
+        existing["birth_year"], existing["birth_month"], existing["birth_day"]
+    )
+    incoming_birth = PartialDate(
+        record.birth_year, record.birth_month, record.birth_day
+    )
+    existing_death = PartialDate(
+        existing["death_year"], existing["death_month"], existing["death_day"]
+    )
+    incoming_death = PartialDate(
+        record.death_year, record.death_month, record.death_day
+    )
 
+    is_verified = bool(existing["is_verified"])
+    merged_birth = _merge_partial_date(
+        existing_birth, incoming_birth, is_verified=is_verified
+    )
+    merged_death = _merge_partial_date(
+        existing_death, incoming_death, is_verified=is_verified
+    )
+    if not is_lifespan_order_valid(merged_birth, merged_death):
+        merged_birth = existing_birth
+        merged_death = existing_death
+
+    if is_verified:
         return {
             "display_name": existing["display_name"],
             "sort_name": existing["sort_name"],
             "legal_name": existing["legal_name"] or record.legal_name,
-            "birth_year": merged_birth,
-            "death_year": merged_death,
+            "birth_year": merged_birth.year,
+            "birth_month": merged_birth.month,
+            "birth_day": merged_birth.day,
+            "death_year": merged_death.year,
+            "death_month": merged_death.month,
+            "death_day": merged_death.day,
             "gender": existing["gender"] or record.gender,
             "native_lang": existing["native_lang"] or record.native_lang,
             "country_code": existing["country_code"] or record.country_code,
@@ -316,30 +408,16 @@ def _merge_fields(
             ),
         }
 
-    merged_birth = (
-        record.birth_year
-        if record.birth_year is not None
-        else existing["birth_year"]
-    )
-    merged_death = (
-        record.death_year
-        if record.death_year is not None
-        else existing["death_year"]
-    )
-    if (
-        merged_birth is not None
-        and merged_death is not None
-        and merged_death < merged_birth
-    ):
-        merged_birth = existing["birth_year"]
-        merged_death = existing["death_year"]
-
     return {
         "display_name": record.display_name,
         "sort_name": record.sort_name,
         "legal_name": record.legal_name or existing["legal_name"],
-        "birth_year": merged_birth,
-        "death_year": merged_death,
+        "birth_year": merged_birth.year,
+        "birth_month": merged_birth.month,
+        "birth_day": merged_birth.day,
+        "death_year": merged_death.year,
+        "death_month": merged_death.month,
+        "death_day": merged_death.day,
         "gender": record.gender or existing["gender"],
         "native_lang": record.native_lang or existing["native_lang"],
         "country_code": record.country_code or existing["country_code"],
@@ -367,7 +445,11 @@ def _update_speaker_if_changed(
             sort_name = %(sort_name)s,
             legal_name = %(legal_name)s,
             birth_year = %(birth_year)s,
+            birth_month = %(birth_month)s,
+            birth_day = %(birth_day)s,
             death_year = %(death_year)s,
+            death_month = %(death_month)s,
+            death_day = %(death_day)s,
             gender = %(gender)s,
             native_lang = %(native_lang)s,
             country_code = %(country_code)s,
@@ -382,7 +464,11 @@ def _update_speaker_if_changed(
               OR sort_name IS DISTINCT FROM %(sort_name)s
               OR legal_name IS DISTINCT FROM %(legal_name)s
               OR birth_year IS DISTINCT FROM %(birth_year)s
+              OR birth_month IS DISTINCT FROM %(birth_month)s
+              OR birth_day IS DISTINCT FROM %(birth_day)s
               OR death_year IS DISTINCT FROM %(death_year)s
+              OR death_month IS DISTINCT FROM %(death_month)s
+              OR death_day IS DISTINCT FROM %(death_day)s
               OR gender IS DISTINCT FROM %(gender)s
               OR native_lang IS DISTINCT FROM %(native_lang)s
               OR country_code IS DISTINCT FROM %(country_code)s
@@ -396,7 +482,11 @@ def _update_speaker_if_changed(
             sort_name,
             legal_name,
             birth_year,
+            birth_month,
+            birth_day,
             death_year,
+            death_month,
+            death_day,
             gender,
             native_lang,
             country_code,

@@ -15,11 +15,20 @@ IMDB_NCONST_RE = re.compile(r"^nm[0-9]+$")
 TMDB_INT_RE = re.compile(r"^[1-9][0-9]*$")
 ISO_LANG_RE = re.compile(r"^[a-z]{2}$")
 ISO_COUNTRY_RE = re.compile(r"^[A-Z]{2}$")
-ISO_YEAR_RE = re.compile(r"^\+?([0-9]{4})(?:-|$)")
+ISO_DATE_PRECISION_RE = re.compile(
+    r"^\+?([0-9]{4})(?:-([0-9]{2})(?:-([0-9]{2}))?)?(?:T[^@]*)?(?:@([0-9]+))?$"
+)
 
 MIN_VALID_YEAR = 1850
 MAX_VALID_YEAR = 2100
 MAX_PG_INT32 = 2_147_483_647
+
+PRECISION_YEAR = 9
+PRECISION_MONTH = 10
+PRECISION_DAY = 11
+
+DAYS_IN_31_MONTHS = frozenset({1, 3, 5, 7, 8, 10, 12})
+DAYS_IN_30_MONTHS = frozenset({4, 6, 9, 11})
 
 GENDER_QID_MAP: dict[str, str] = {
     "Q6581072": "female",
@@ -32,6 +41,15 @@ GENDER_QID_MAP: dict[str, str] = {
 
 
 @dataclass(frozen=True)
+class PartialDate:
+    """MusicBrainz-style partial calendar date (year, month, day)."""
+
+    year: int | None = None
+    month: int | None = None
+    day: int | None = None
+
+
+@dataclass(frozen=True)
 class SpeakerRecord:
     """Normalized speaker row ready for loading into public.speakers."""
 
@@ -40,7 +58,11 @@ class SpeakerRecord:
     sort_name: str
     legal_name: str | None = None
     birth_year: int | None = None
+    birth_month: int | None = None
+    birth_day: int | None = None
     death_year: int | None = None
+    death_month: int | None = None
+    death_day: int | None = None
     gender: str | None = None
     native_lang: str | None = None
     country_code: str | None = None
@@ -113,19 +135,108 @@ def parse_qid(raw_uri: str | None) -> str | None:
     return candidate if QID_RE.match(candidate) else None
 
 
-def parse_year(raw_dates: str | None) -> int | None:
-    """Extract a deterministic year in [1850, 2100] from raw ISO date strings."""
-    years: list[int] = []
+def is_leap_year(year: int) -> bool:
+    """Return True if year is a Gregorian leap year."""
+    return (year % 4 == 0 and year % 100 != 0) or (year % 400 == 0)
+
+
+def is_valid_partial_date(
+    year: int | None, month: int | None, day: int | None
+) -> bool:
+    """Validate partial date ranges and calendar rules matching migration 005."""
+    if year is not None and not (MIN_VALID_YEAR <= year <= MAX_VALID_YEAR):
+        return False
+    if month is not None and not (1 <= month <= 12):
+        return False
+    if day is not None:
+        if month is None or day < 1:
+            return False
+        if month in DAYS_IN_31_MONTHS:
+            return day <= 31
+        if month in DAYS_IN_30_MONTHS:
+            return day <= 30
+        if month == 2:
+            max_feb = 29 if (year is None or is_leap_year(year)) else 28
+            return day <= max_feb
+        return False
+    return True
+
+
+def is_lifespan_order_valid(birth: PartialDate, death: PartialDate) -> bool:
+    """Return True when death date is not strictly before birth date."""
+    if birth.year is None or death.year is None:
+        return True
+    if death.year != birth.year:
+        return death.year > birth.year
+    if birth.month is None or death.month is None:
+        return True
+    if death.month != birth.month:
+        return death.month > birth.month
+    if birth.day is None or death.day is None:
+        return True
+    return death.day >= birth.day
+
+
+def parse_partial_date(raw_dates: str | None) -> PartialDate:
+    """Extract a deterministic PartialDate honoring wikibase:timePrecision.
+
+    Values without '@<precision>' only extract the year so un-precisioned
+    placeholder timestamps (such as YYYY-01-01) never create fake birthdays.
+    """
+    candidates: list[PartialDate] = []
     for item in split_multi(raw_dates):
         if item.startswith("-"):
             continue
-        match = ISO_YEAR_RE.match(item)
+        match = ISO_DATE_PRECISION_RE.match(item)
         if not match:
             continue
+
         year = int(match.group(1))
-        if MIN_VALID_YEAR <= year <= MAX_VALID_YEAR:
-            years.append(year)
-    return min(years) if years else None
+        if not (MIN_VALID_YEAR <= year <= MAX_VALID_YEAR):
+            continue
+
+        month = int(match.group(2)) if match.group(2) is not None else None
+        day = int(match.group(3)) if match.group(3) is not None else None
+        precision = int(match.group(4)) if match.group(4) is not None else None
+
+        if precision is None or precision == PRECISION_YEAR:
+            candidates.append(PartialDate(year=year))
+            continue
+        if precision < PRECISION_YEAR:
+            continue
+
+        if precision == PRECISION_MONTH:
+            if month is not None and is_valid_partial_date(year, month, None):
+                candidates.append(PartialDate(year=year, month=month))
+            else:
+                candidates.append(PartialDate(year=year))
+            continue
+
+        # precision >= PRECISION_DAY (11+)
+        if month is not None and day is not None and is_valid_partial_date(year, month, day):
+            candidates.append(PartialDate(year=year, month=month, day=day))
+        elif month is not None and is_valid_partial_date(year, month, None):
+            candidates.append(PartialDate(year=year, month=month))
+        else:
+            candidates.append(PartialDate(year=year))
+
+    if not candidates:
+        return PartialDate()
+
+    return min(
+        candidates,
+        key=lambda d: (
+            -(int(d.day is not None) * 2 + int(d.month is not None)),
+            d.year if d.year is not None else 9999,
+            d.month if d.month is not None else 99,
+            d.day if d.day is not None else 99,
+        ),
+    )
+
+
+def parse_year(raw_dates: str | None) -> int | None:
+    """Extract a deterministic year in [1850, 2100] from raw ISO date strings."""
+    return parse_partial_date(raw_dates).year
 
 
 def parse_gender(raw_uris: str | None) -> str | None:
@@ -227,17 +338,17 @@ def transform_binding(binding: dict[str, Any]) -> SpeakerRecord | None:
         )
         return None
 
-    birth_year = parse_year(_binding_value(binding, "birthDates"))
-    death_year = parse_year(_binding_value(binding, "deathDates"))
-    if birth_year is not None and death_year is not None and death_year < birth_year:
+    birth = parse_partial_date(_binding_value(binding, "birthDates"))
+    death = parse_partial_date(_binding_value(binding, "deathDates"))
+    if not is_lifespan_order_valid(birth, death):
         logger.warning(
-            "Clearing contradictory lifespan for %s: birth_year=%d death_year=%d",
+            "Clearing contradictory lifespan for %s: birth=%s death=%s",
             wikidata_qid,
-            birth_year,
-            death_year,
+            birth,
+            death,
         )
-        birth_year = None
-        death_year = None
+        birth = PartialDate()
+        death = PartialDate()
 
     return SpeakerRecord(
         wikidata_qid=wikidata_qid,
@@ -246,8 +357,12 @@ def transform_binding(binding: dict[str, Any]) -> SpeakerRecord | None:
         legal_name=parse_legal_name(
             _binding_value(binding, "legalNames"), display_name
         ),
-        birth_year=birth_year,
-        death_year=death_year,
+        birth_year=birth.year,
+        birth_month=birth.month,
+        birth_day=birth.day,
+        death_year=death.year,
+        death_month=death.month,
+        death_day=death.day,
         gender=parse_gender(_binding_value(binding, "genderUris")),
         native_lang=parse_native_lang(_binding_value(binding, "nativeLangCodes")),
         country_code=parse_country_code(_binding_value(binding, "countryCodes")),
@@ -260,7 +375,11 @@ def _completeness_score(record: SpeakerRecord) -> int:
     optional_fields = (
         record.legal_name,
         record.birth_year,
+        record.birth_month,
+        record.birth_day,
         record.death_year,
+        record.death_month,
+        record.death_day,
         record.gender,
         record.native_lang,
         record.country_code,

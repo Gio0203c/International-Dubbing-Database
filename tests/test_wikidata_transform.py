@@ -6,6 +6,7 @@ import json
 from pathlib import Path
 
 from etl.wikidata.transform import (
+    PartialDate,
     SpeakerRecord,
     build_sort_name,
     parse_country_code,
@@ -13,6 +14,7 @@ from etl.wikidata.transform import (
     parse_imdb_nconst,
     parse_legal_name,
     parse_native_lang,
+    parse_partial_date,
     parse_qid,
     parse_tmdb_person_id,
     parse_year,
@@ -51,6 +53,22 @@ def test_parse_year_handles_iso_precision_ranges_and_blank_nodes() -> None:
     assert parse_year("2200-01-01T00:00:00Z") is None
     assert parse_year("_:t123") is None
     assert parse_year("") is None
+
+
+def test_parse_partial_date_honors_wikidata_time_precision() -> None:
+    assert parse_partial_date("1975-08-13T00:00:00Z@11") == PartialDate(1975, 8, 13)
+    assert parse_partial_date("1975-08-01T00:00:00Z@10") == PartialDate(1975, 8, None)
+    # Year-only precision (@9) never leaks a fake January 1st birthday
+    assert parse_partial_date("1950-01-01T00:00:00Z@9") == PartialDate(1950, None, None)
+    # Decade precision (@8) is ignored
+    assert parse_partial_date("1950-01-01T00:00:00Z@8") == PartialDate()
+    # Legacy un-precisioned timestamp stays year-only
+    assert parse_partial_date("1975-08-13T00:00:00Z") == PartialDate(1975, None, None)
+    # Multi-value prefers higher precision (@11/@10 over @9)
+    assert parse_partial_date("1974-12-31T00:00:00Z@9|1975-03-01T00:00:00Z@10") == PartialDate(1975, 3, None)
+    assert parse_partial_date("1974-01-01T00:00:00Z@9|1975-03-05T00:00:00Z@11") == PartialDate(1975, 3, 5)
+    # Invalid calendar day (Feb 29 on non-leap year 1999) degrades safely to year+month
+    assert parse_partial_date("1999-02-29T00:00:00Z@11") == PartialDate(1999, 2, None)
 
 
 def test_parse_gender_maps_qids_independently_of_language() -> None:
@@ -114,7 +132,7 @@ def test_transform_bindings_on_sample_fixture() -> None:
 
     assert result.discarded_count == 2
     assert result.duplicate_qid_count == 1
-    assert len(result.records) == 6
+    assert len(result.records) == 7
 
     by_qid = {rec.wikidata_qid: rec for rec in result.records}
 
@@ -124,7 +142,11 @@ def test_transform_bindings_on_sample_fixture() -> None:
         sort_name="Baldini, Nanni",
         legal_name="Giovanni Baldini",
         birth_year=1975,
+        birth_month=8,
+        birth_day=13,
         death_year=None,
+        death_month=None,
+        death_day=None,
         gender="male",
         native_lang=None,
         country_code="IT",
@@ -134,6 +156,8 @@ def test_transform_bindings_on_sample_fixture() -> None:
 
     assert by_qid["Q3713381"].legal_name is None
     assert by_qid["Q3713381"].sort_name == "D'Amico, Domitilla"
+    assert by_qid["Q3713381"].birth_month == 9
+    assert by_qid["Q3713381"].birth_day == 5
     assert by_qid["Q3713381"].tmdb_person_id == 1137540
 
     assert by_qid["Q3297658"].sort_name == "Perla Liberatori"
@@ -143,7 +167,9 @@ def test_transform_bindings_on_sample_fixture() -> None:
     assert dirty.display_name == "Dirty Multi Actor"
     assert dirty.sort_name == "Multi Actor, Dirty"
     assert dirty.legal_name is None
-    assert dirty.birth_year == 1974
+    assert dirty.birth_year == 1975
+    assert dirty.birth_month == 3
+    assert dirty.birth_day is None
     assert dirty.death_year is None
     assert dirty.gender == "non_binary"
     assert dirty.native_lang == "en"
@@ -151,6 +177,26 @@ def test_transform_bindings_on_sample_fixture() -> None:
     assert dirty.imdb_nconst == "nm0000123"
     assert dirty.tmdb_person_id == 320
 
+    year_only = by_qid["Q9990003"]
+    assert year_only.birth_year == 1950
+    assert year_only.birth_month is None
+    assert year_only.birth_day is None
+
     bad_lifespan = by_qid["Q9990001"]
     assert bad_lifespan.birth_year is None
+    assert bad_lifespan.birth_month is None
+    assert bad_lifespan.birth_day is None
     assert bad_lifespan.death_year is None
+
+
+def test_transform_binding_clears_same_year_inverted_lifespan() -> None:
+    binding = {
+        "person": {"type": "uri", "value": "http://www.wikidata.org/entity/Q9990004"},
+        "displayName": {"type": "literal", "value": "Same Year Inverted"},
+        "birthDates": {"type": "literal", "value": "1980-05-10T00:00:00Z@11"},
+        "deathDates": {"type": "literal", "value": "1980-03-01T00:00:00Z@11"},
+    }
+    rec = transform_binding(binding)
+    assert rec is not None
+    assert (rec.birth_year, rec.birth_month, rec.birth_day) == (None, None, None)
+    assert (rec.death_year, rec.death_month, rec.death_day) == (None, None, None)

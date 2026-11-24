@@ -125,7 +125,7 @@ def _sample_bindings() -> list[dict[str, object]]:
             "person": {"type": "uri", "value": "http://www.wikidata.org/entity/Q3870135"},
             "displayName": {"type": "literal", "value": "Nanni Baldini"},
             "familyNames": {"type": "literal", "value": "Baldini"},
-            "birthDates": {"type": "literal", "value": "1975-08-13T00:00:00Z"},
+            "birthDates": {"type": "literal", "value": "1975-08-13T00:00:00Z@11"},
             "genderUris": {"type": "literal", "value": "http://www.wikidata.org/entity/Q6581097"},
             "countryCodes": {"type": "literal", "value": "IT"},
             "imdbIds": {"type": "literal", "value": "nm1129594"},
@@ -134,7 +134,7 @@ def _sample_bindings() -> list[dict[str, object]]:
             "person": {"type": "uri", "value": "http://www.wikidata.org/entity/Q3713381"},
             "displayName": {"type": "literal", "value": "Domitilla D'Amico"},
             "familyNames": {"type": "literal", "value": "D'Amico"},
-            "birthDates": {"type": "literal", "value": "1982-09-05T00:00:00Z"},
+            "birthDates": {"type": "literal", "value": "1982-09-05T00:00:00Z@11"},
             "genderUris": {"type": "literal", "value": "http://www.wikidata.org/entity/Q6581072"},
             "countryCodes": {"type": "literal", "value": "IT"},
             "imdbIds": {"type": "literal", "value": "nm0195120"},
@@ -143,7 +143,7 @@ def _sample_bindings() -> list[dict[str, object]]:
         {
             "person": {"type": "uri", "value": "http://www.wikidata.org/entity/Q3297658"},
             "displayName": {"type": "literal", "value": "Perla Liberatori"},
-            "birthDates": {"type": "literal", "value": "1981-11-10T00:00:00Z"},
+            "birthDates": {"type": "literal", "value": "1981-11-10T00:00:00Z@11"},
             "genderUris": {"type": "literal", "value": "http://www.wikidata.org/entity/Q6581072"},
             "countryCodes": {"type": "literal", "value": "IT"},
             "imdbIds": {"type": "literal", "value": "nm2959823"},
@@ -357,3 +357,69 @@ def test_partial_dates_constraints(pg_env: None) -> None:
                     """,
                     (b_y, b_m, b_d, d_y, d_m, d_d),
                 )
+
+
+def test_partial_dates_sync_backfill_and_leap_year_safety(pg_env: None) -> None:
+    bindings = _sample_bindings()
+    first = run_sync(bindings_override=bindings)
+    assert first.rows_inserted == 3
+
+    second = run_sync(bindings_override=bindings)
+    assert second.rows_inserted == 0
+    assert second.rows_updated == 0
+    assert second.rows_unchanged == 3
+
+    with transaction() as conn:
+        nanni = conn.execute(
+            "SELECT birth_year, birth_month, birth_day FROM public.speakers WHERE wikidata_qid = 'Q3870135'"
+        ).fetchone()
+        # Verified row with non-leap year 1999 must not graft Feb 29 from an incoming 2000-02-29
+        conn.execute(
+            """
+            INSERT INTO public.speakers (
+                display_name, sort_name, birth_year, wikidata_qid, is_verified
+            )
+            VALUES ('Verified 1999', '1999, Verified', 1999, 'Q9990010', TRUE)
+            """
+        )
+        # Verified row with matching year 1980 backfills missing month and day cleanly
+        conn.execute(
+            """
+            INSERT INTO public.speakers (
+                display_name, sort_name, birth_year, wikidata_qid, is_verified
+            )
+            VALUES ('Verified 1980', '1980, Verified', 1980, 'Q9990011', TRUE)
+            """
+        )
+
+    assert nanni == {"birth_year": 1975, "birth_month": 8, "birth_day": 13}
+
+    incoming = [
+        SpeakerRecord(
+            wikidata_qid="Q9990010",
+            display_name="Verified 1999",
+            sort_name="1999, Verified",
+            birth_year=2000,
+            birth_month=2,
+            birth_day=29,
+        ),
+        SpeakerRecord(
+            wikidata_qid="Q9990011",
+            display_name="Verified 1980",
+            sort_name="1980, Verified",
+            birth_year=1980,
+            birth_month=6,
+            birth_day=15,
+        ),
+    ]
+    with transaction() as conn:
+        load_speakers(conn, incoming)
+        r1 = conn.execute(
+            "SELECT birth_year, birth_month, birth_day FROM public.speakers WHERE wikidata_qid = 'Q9990010'"
+        ).fetchone()
+        r2 = conn.execute(
+            "SELECT birth_year, birth_month, birth_day FROM public.speakers WHERE wikidata_qid = 'Q9990011'"
+        ).fetchone()
+
+    assert r1 == {"birth_year": 1999, "birth_month": None, "birth_day": None}
+    assert r2 == {"birth_year": 1980, "birth_month": 6, "birth_day": 15}
