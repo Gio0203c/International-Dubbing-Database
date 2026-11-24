@@ -60,11 +60,11 @@ Birth and death dates are stored as separate `SMALLINT` components (`birth_year`
 | `public_id` | `TEXT GENERATED ALWAYS AS (...) STORED UNIQUE NOT NULL` | Public identifier (`sp0000001`, 7+ digits, regex `^sp[0-9]{7,}$`) |
 | `display_name` | `TEXT NOT NULL CHECK (btrim(display_name) <> '')` | Credited public name |
 | `sort_name` | `TEXT NOT NULL CHECK (btrim(sort_name) <> '')` | Alphabetical sort key (MusicBrainz style) |
-| `legal_name` | `TEXT NULL` | Legal or birth name when different from `display_name` |
+| `legal_name` | `TEXT NULL CHECK (legal_name IS NULL OR btrim(legal_name) <> '')` | Legal or birth name when different from `display_name` |
 | `birth_year` | `SMALLINT NULL CHECK (birth_year BETWEEN 1850 AND 2100)` | Year of birth |
 | `birth_month` | `SMALLINT NULL CHECK (birth_month BETWEEN 1 AND 12)` | Month of birth (only when upstream precision includes month) |
 | `birth_day` | `SMALLINT NULL CHECK (birth_day BETWEEN 1 AND 31)` | Day of birth (requires `birth_month`; calendar-validated) |
-| `death_year` | `SMALLINT NULL CHECK (death_year BETWEEN 1850 AND 2100)` + `>= birth_year` | Year of death |
+| `death_year` | `SMALLINT NULL CHECK (death_year BETWEEN 1850 AND 2100)` + `>= birth_year` (full chronological check across year/month/day in ADR-004) | Year of death |
 | `death_month` | `SMALLINT NULL CHECK (death_month BETWEEN 1 AND 12)` | Month of death (only when upstream precision includes month) |
 | `death_day` | `SMALLINT NULL CHECK (death_day BETWEEN 1 AND 31)` | Day of death (requires `death_month`; calendar-validated) |
 | `gender` | `TEXT NULL CHECK (gender IN ('female', 'male', 'non_binary', 'other'))` | Controlled vocabulary using `TEXT` + `CHECK` for easy evolution |
@@ -73,7 +73,7 @@ Birth and death dates are stored as separate `SMALLINT` components (`birth_year`
 | `wikidata_qid` | `TEXT UNIQUE NULL CHECK (wikidata_qid ~ '^Q[1-9][0-9]*$')` | Wikidata bridge identifier |
 | `imdb_nconst` | `TEXT UNIQUE NULL CHECK (imdb_nconst ~ '^nm[0-9]+$')` | IMDb person bridge identifier (ID only, never IMDb dumps) |
 | `tmdb_person_id` | `INTEGER UNIQUE NULL CHECK (tmdb_person_id > 0)` | TMDB person bridge identifier |
-| `primary_source` | `TEXT NOT NULL DEFAULT 'wikidata'` | Source that originated or owns the record |
+| `primary_source` | `TEXT NOT NULL DEFAULT 'wikidata' CHECK (btrim(primary_source) <> '')` | Source that originated or owns the record |
 | `is_verified` | `BOOLEAN NOT NULL DEFAULT FALSE` | Protects manually verified rows from automated overwrites |
 | `last_seen_at` | `TIMESTAMPTZ NULL` | Last timestamp when an automated ETL run confirmed the record |
 | `created_at` | `TIMESTAMPTZ NOT NULL DEFAULT NOW()` | Row creation timestamp |

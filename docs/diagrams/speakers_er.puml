@@ -6,7 +6,7 @@ package "staging schema" {
   entity "staging.wikidata_raw" as wikidata_raw {
     * id : BIGINT <<PK, identity>>
     --
-    run_id : BIGINT
+    run_id : BIGINT <<logical FK>>
     * wikidata_qid : TEXT
     * payload : JSONB
     * payload_hash : TEXT
@@ -58,6 +58,6 @@ package "public schema" {
   }
 }
 
-etl_runs ||..o{ wikidata_raw : "logical run reference (no rigid FK)"
-wikidata_raw ..> speakers : "transformed & upserted via wikidata_qid"
+etl_runs |o..o{ wikidata_raw : "logical run reference (no rigid FK)"
+wikidata_raw ..> speakers : "transformed & upserted via wikidata_qid / bridge IDs"
 @enduml
