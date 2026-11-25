@@ -1,0 +1,86 @@
+@startuml provenance_er
+hide circle
+skinparam linetype ortho
+
+package "public schema (provenance & audit governance)" {
+  entity "public.etl_runs (ref)" as etl_runs {
+    * id : BIGINT <<PK, identity>>
+    --
+    * source : TEXT
+    * status : TEXT
+    * started_at : TIMESTAMPTZ
+  }
+
+  entity "public.contributors" as contributors {
+    * id : BIGINT <<PK, identity>>
+    * public_id : TEXT <<UK, generated>>
+    --
+    * display_handle : TEXT <<UK>>
+    * accepted_cc_by_sa_4_0 : BOOLEAN
+    * is_active : BOOLEAN
+    --
+    * created_at : TIMESTAMPTZ
+    * updated_at : TIMESTAMPTZ
+  }
+
+  entity "public.provenance_records" as provenance_records {
+    * id : BIGINT <<PK, identity>>
+    --
+    * entity_table : TEXT <<UK>>
+    * entity_id : BIGINT <<UK>>
+    field_name : TEXT <<UK>>
+    * source_type : TEXT <<UK>>
+    source_lang : TEXT
+    * source_license : TEXT
+    source_url : TEXT <<UK>>
+    source_revision_id : TEXT <<UK>>
+    attribution_text : TEXT
+    --
+    distribution_edition : TEXT <<UK>>
+    credit_timecode : TEXT <<UK>>
+    episode_or_cut : TEXT
+    --
+    contributor_id : BIGINT <<FK>>
+    etl_run_id : BIGINT <<FK>>
+    * captured_at : TIMESTAMPTZ
+    * created_at : TIMESTAMPTZ
+  }
+
+  entity "public.audit_log" as audit_log {
+    * id : BIGINT <<PK, identity>>
+    --
+    * entity_table : TEXT
+    * entity_id : BIGINT
+    * action : TEXT
+    * changed_data : JSONB
+    --
+    provenance_id : BIGINT <<FK>>
+    contributor_id : BIGINT <<FK>>
+    etl_run_id : BIGINT <<FK>>
+    * changed_at : TIMESTAMPTZ
+  }
+}
+
+contributors |o--o{ provenance_records : "contributes (NULL if deleted)"
+etl_runs |o--o{ provenance_records : "records (NULL if purged)"
+provenance_records |o--o{ audit_log : "evidences (NULL if purged)"
+contributors |o--o{ audit_log : "performs (NULL if deleted)"
+etl_runs |o--o{ audit_log : "logs (NULL if purged)"
+
+note left of contributors
+  uq_contributors_handle_lower enforces
+  unique lower(display_handle).
+end note
+
+note bottom of provenance_records
+  Polymorphic (entity_table, entity_id) targets the 12 core public domain tables.
+  uq_provenance_records_natural deduplicates nullable URL/revision/edition keys.
+  CHECK constraints block NC/ND licenses and enforce Wiki revisions & attribution.
+end note
+
+note right of audit_log
+  Append-only via trg_audit_log_append_only:
+  BEFORE UPDATE OR DELETE raises an exception.
+end note
+
+@enduml

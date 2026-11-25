@@ -18,7 +18,7 @@ IDDb uses two schemas inside the same PostgreSQL database: `staging` and `public
 
 The `staging` schema acts as a landing zone for raw upstream payloads. For Wikidata, `staging.wikidata_raw` stores the unmodified payload in a `JSONB` column alongside `fetched_at` and a content hash, with no strict domain constraints. This keeps extraction resilient against messy upstream data, lets the transform step be re-run locally without hitting external APIs again, and preserves any new properties added upstream in Wikidata without running automatic `ALTER TABLE` statements during ETL runs.
 
-The `public` schema holds normalized, strictly typed domain tables and the `etl_runs` audit table (`speakers` and its satellite tables in ADR-001 through ADR-006, and works, studios, dubbing editions, characters, and credits in ADR-007). When a new upstream property proves stable and useful across sources, it is promoted into `public` through a deliberate, versioned SQL migration.
+The `public` schema holds normalized, strictly typed domain tables and the `etl_runs` audit table (`speakers` and its satellite tables in ADR-001 through ADR-006, works, studios, dubbing editions, characters, and credits in ADR-007 through ADR-008, and provenance/audit governance in ADR-009). When a new upstream property proves stable and useful across sources, it is promoted into `public` through a deliberate, versioned SQL migration.
 
 ## ADR-001: Surrogate Primary Key and Prefixed Public ID
 
@@ -199,3 +199,23 @@ Dubbing studios frequently rename over time (for instance, a single company rebr
 ### Consequences
 
 Historical edition credits stay intact under either historical aliases or predecessor entities without losing attribution. Searching any former or merged studio immediately resolves its status (`active`, `closed`, `merged`), legacy time span, and current corporate successor via single-hop joins or recursive lineage traversal (`WITH RECURSIVE`), reflected in [dubbing_er.puml](diagrams/dubbing_er.puml).
+
+## ADR-009: Provenance, Open Licensing Metadata, and Append-Only Audit Trail
+
+### Context
+
+As IDDb expands beyond `CC0` Wikidata into `CC BY-SA 4.0` sources (such as Wikipedia via official Wikimedia APIs/dumps and TVmaze textual metadata), `CC0` MusicBrainz Core Data, and clean-room verified primary sources (official end credits and studio announcements), maintaining a single unified `CC BY-SA 4.0` database requires verifiable per-record provenance, SPDX license allowlisting without `NC`/`ND` restrictions, automated `ATTRIBUTION.md` generation, pseudonymous contributor tracking free of PII, and an immutable change history.
+
+### Decision
+
+`sql/migrations/010_create_provenance_and_audit_trail.sql` adds three dedicated governance tables in `public` without widening the 12 core domain tables or adding portrait image storage at this stage:
+
+- `public.contributors` (`ct` prefixed `public_id`, unique case-insensitive `display_handle`) identifies human contributors pseudonymously inside public dumps and records explicit `CC BY-SA 4.0` contribution consent (`accepted_cc_by_sa_4_0`).
+- `public.provenance_records` tracks polymorphic provenance (`entity_table`, `entity_id`, optional column-level `field_name`) alongside `source_type` (`wikidata`, `itwiki`, `wikipedia`, `wikimedia_commons`, `tvmaze`, `musicbrainz_core`, `end_credits`, `official_studio_post`, `studio_press_release`, `community_primary_verified`), optional ISO 639-1 `source_lang`, strict SPDX `source_license` allowlist (`CC0-1.0`, `PDM-1.0`, `CC-BY-*`, `CC-BY-SA-*`, rejecting `NC`/`ND`), `source_url`, `source_revision_id`, `attribution_text`, and primary-source verification fields (`distribution_edition` rejecting camcording labels, `credit_timecode`, `episode_or_cut`). Conditional `CHECK` constraints enforce URL requirements on external sources, `source_revision_id` on Wikipedia entries, `attribution_text` on all non-CC0 licenses, and `distribution_edition` + `contributor_id` on primary-verified credits.
+- `public.audit_log` records append-only `INSERT`, `UPDATE`, `DELETE`, and `VERIFY` JSONB object diffs linked to optional `provenance_id`, `contributor_id`, and `etl_run_id`, guarded by the `trg_audit_log_append_only` trigger rejecting any `UPDATE` or `DELETE`.
+
+Portrait/image asset tables (`entity_images`) are intentionally deferred until needed. The governance ER diagram is in [provenance_er.puml](diagrams/provenance_er.puml).
+
+### Consequences
+
+Any exported `CC BY-SA 4.0` dataset can compile a complete `ATTRIBUTION.md` directly from `public.provenance_records` and fail fast if required attributions or revision links are missing. Primary credits remain auditable without exposing contributor personal data or persisting photographic media, while `public.audit_log` preserves an immutable verification trail across automated ETL runs and human edits.
