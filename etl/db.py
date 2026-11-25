@@ -1,4 +1,4 @@
-"""PostgreSQL connection and transaction helpers for IDDB ETL scripts."""
+"""PostgreSQL connection and transaction helpers for IDDb ETL scripts."""
 
 from __future__ import annotations
 

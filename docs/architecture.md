@@ -1,20 +1,20 @@
 # Architecture and Schema Decisions
 
-This document explains how International Dubbing Database (IDDB) is structured and records the key design decisions behind the initial `staging` and `public.speakers` schema.
+This document explains how International Dubbing Database (IDDb) is structured and records the key design decisions behind the initial `staging` and `public.speakers` schema.
 
 ## Repository and Data Separation
 
-IDDB follows the MusicBrainz model of separating the database engine from live data. This Git repository contains only versioned SQL migrations, schema documentation, standalone SPARQL queries, Python ETL code, and unit tests with small sample fixtures. Live data stays inside PostgreSQL. Future public APIs or downloadable snapshots are distributed outside Git history.
+IDDb follows the MusicBrainz model of separating the database engine from live data. This Git repository contains only versioned SQL migrations, schema documentation, standalone SPARQL queries, Python ETL code, and unit tests with small sample fixtures. Live data stays inside PostgreSQL. Future public APIs or downloadable snapshots are distributed outside Git history.
 
 Every change to the PostgreSQL schema must be defined in a numbered migration file under `sql/migrations/`. Tables and constraints are never created manually without a matching migration script, so anyone can clone the repository and rebuild an identical empty database from scratch.
 
 ## Licensing and Data Governance
 
-IDDB separates software licensing from database licensing: repository code, SQL migrations, SPARQL queries, and tests are distributed under **Apache 2.0**, while the unified public database and future dataset exports are licensed under **CC BY-SA 4.0**. Only open-license or primary-verified sources compatible with **CC BY-SA 4.0** (such as Wikidata `CC0`, official Wikipedia APIs/dumps `CC BY-SA 4.0`, Wikimedia Commons per-file open assets, TVmaze textual metadata `CC BY-SA`, MusicBrainz Core Data `CC0`, and primary-verified end credits) may enter `public.*`. External IDs for proprietary services (`IMDb`, `TMDB`, `AniList`, `MyAnimeList`, `AniDB`, `BTVA`) are harvested solely from `CC0` Wikidata under a strict **Bridge-IDs-Only** rule for deduplication and outbound links.
+IDDb separates software licensing from database licensing: repository code, SQL migrations, SPARQL queries, and tests are distributed under **Apache 2.0**, while the unified public database and future dataset exports are licensed under **CC BY-SA 4.0**. Only open-license or primary-verified sources compatible with **CC BY-SA 4.0** (such as Wikidata `CC0`, official Wikipedia APIs/dumps `CC BY-SA 4.0`, Wikimedia Commons per-file open assets, TVmaze textual metadata `CC BY-SA`, MusicBrainz Core Data `CC0`, and primary-verified end credits) may enter `public.*`. External IDs for proprietary services (`IMDb`, `TMDB`, `AniList`, `MyAnimeList`, `AniDB`, `BTVA`) are harvested solely from `CC0` Wikidata under a strict **Bridge-IDs-Only** rule for deduplication and outbound links.
 
 ## Two-Schema Database Model
 
-IDDB uses two schemas inside the same PostgreSQL database: `staging` and `public`.
+IDDb uses two schemas inside the same PostgreSQL database: `staging` and `public`.
 
 The `staging` schema acts as a landing zone for raw upstream payloads. For Wikidata, `staging.wikidata_raw` stores the unmodified payload in a `JSONB` column alongside `fetched_at` and a content hash, with no strict domain constraints. This keeps extraction resilient against messy upstream data, lets the transform step be re-run locally without hitting external APIs again, and preserves any new properties added upstream in Wikidata without running automatic `ALTER TABLE` statements during ETL runs.
 
@@ -89,7 +89,7 @@ The entity-relationship diagram for the initial tables is in [speakers_er.puml](
 
 ### Context
 
-IDDB will sync periodically from Wikidata and later ingest additional open-license or primary sources compatible with CC BY-SA 4.0 (such as Wikipedia via the MediaWiki API or official dumps, TVmaze textual metadata, MusicBrainz Core Data CC0, and primary-verified closing credits), while restricting proprietary catalogs (TMDB, IMDb, AniList, MyAnimeList, AniDB, BTVA) strictly to CC0 Wikidata bridge identifiers. Automated pipelines must avoid duplicate records, unnecessary writes, accidental deletion of valid entries during upstream outages, and overwriting manual corrections.
+IDDb will sync periodically from Wikidata and later ingest additional open-license or primary sources compatible with CC BY-SA 4.0 (such as Wikipedia via the MediaWiki API or official dumps, TVmaze textual metadata, MusicBrainz Core Data CC0, and primary-verified closing credits), while restricting proprietary catalogs (TMDB, IMDb, AniList, MyAnimeList, AniDB, BTVA) strictly to CC0 Wikidata bridge identifiers. Automated pipelines must avoid duplicate records, unnecessary writes, accidental deletion of valid entries during upstream outages, and overwriting manual corrections.
 
 ### Decision
 

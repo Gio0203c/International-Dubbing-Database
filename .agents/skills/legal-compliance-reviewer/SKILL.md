@@ -3,15 +3,15 @@ name: legal-compliance-reviewer
 description: >-
   Audits data sources, ETL pipelines, scrapers, ephemeral OCR scripts, external API
   integrations, image persistence, PostgreSQL migrations, licensing headers, `.gitignore`
-  guards, and monetization features for International Dubbing Database (IDDB) against EU/Italian
+  guards, and monetization features for International Dubbing Database (IDDb) against EU/Italian
   database law, DRM rules, open-data license compatibility, third-party ToS, and privacy rules.
   Use this skill before introducing any new data source, extractor, schema provenance change,
   image storage workflow, or commercial site feature, or whenever the user asks for a compliance review.
 ---
 
-# IDDB Legal & Compliance Reviewer
+# IDDb Legal & Compliance Reviewer
 
-Follow this procedure whenever reviewing existing repository state or evaluating a proposed feature, data source, extractor, schema change, or monetization workflow in IDDB.
+Follow this procedure whenever reviewing existing repository state or evaluating a proposed feature, data source, extractor, schema change, or monetization workflow in IDDb.
 
 ## Steps
 

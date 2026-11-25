@@ -1,6 +1,6 @@
-# IDDB Legal & Data Compliance Reference
+# IDDb Legal & Data Compliance Reference
 
-Authoritative checklist for **International Dubbing Database (IDDB)**.
+Authoritative checklist for **International Dubbing Database (IDDb)**.
 Repository source code, SQL migrations, SPARQL queries, and tests are licensed under **Apache 2.0**. The unified public database and exports are licensed under **CC BY-SA 4.0**.
 
 ## 1. EU & Italian Database Law
@@ -44,7 +44,7 @@ Repository source code, SQL migrations, SPARQL queries, and tests are licensed u
 
 ## 5. Privacy, GDPR, NDA, and Restricted Materials
 
-- **Public figures minimization (GDPR):** Store only public professional biographical facts from open/verified sources. Never store private emails, phone numbers, home addresses, national IDs, or non-public relatives (enforced in IDDB via `public.speakers` FK constraints on `speaker_relationships`).
+- **Public figures minimization (GDPR):** Store only public professional biographical facts from open/verified sources. Never store private emails, phone numbers, home addresses, national IDs, or non-public relatives (enforced in IDDb via `public.speakers` FK constraints on `speaker_relationships`).
 - **Pre-release / NDA ban:** Never ingest leaked scripts, confidential studio call sheets, or credits covered by active release embargoes/NDAs.
 - **Copyrighted media ban:** Never store or redistribute copyrighted film frames, promotional stills, posters, or studio Instagram promotional graphics.
 

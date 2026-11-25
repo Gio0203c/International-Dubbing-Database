@@ -1,6 +1,6 @@
-# IDDB Data Governance & Legal Compliance Rule
+# IDDb Data Governance & Legal Compliance Rule
 
-These workspace constraints govern every migration, ETL connector, script, UI integration, and documentation update in International Dubbing Database (`IDDB`).
+These workspace constraints govern every migration, ETL connector, script, UI integration, and documentation update in International Dubbing Database (`IDDb`).
 
 ## Mandatory Project Boundaries
 

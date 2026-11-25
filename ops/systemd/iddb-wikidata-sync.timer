@@ -1,5 +1,5 @@
 [Unit]
-Description=Run IDDB Wikidata sync every Sunday morning
+Description=Run IDDb Wikidata sync every Sunday morning
 
 [Timer]
 OnCalendar=Sun *-*-* 03:00:00

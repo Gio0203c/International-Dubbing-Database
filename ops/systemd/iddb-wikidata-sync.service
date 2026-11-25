@@ -1,5 +1,5 @@
 [Unit]
-Description=IDDB weekly Wikidata voice actors sync
+Description=IDDb weekly Wikidata voice actors sync
 After=network-online.target postgresql.service
 Wants=network-online.target
 

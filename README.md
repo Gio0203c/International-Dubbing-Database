@@ -1,6 +1,6 @@
 # International Dubbing Database
 
-International Dubbing Database (IDDB) is an open relational database for dubbing metadata: voice actors, works, dubbing editions, casts, and bridge identifiers to external databases.
+International Dubbing Database (IDDb) is an open relational database for dubbing metadata: voice actors, works, dubbing editions, casts, and bridge identifiers to external databases.
 
 This repository contains the database engine only: SQL migrations, schema documentation, SPARQL queries, Python ETL scripts, and unit tests. Live data lives in PostgreSQL and is never committed to Git.
 
@@ -29,5 +29,5 @@ Database migrations and ETL scripts are currently under initial development.
 ## License
 
 - Repository engine, SQL migrations, SPARQL queries, Python ETL code, and tests are licensed under the **Apache License, Version 2.0**. See [LICENSE](LICENSE) for details.
-- The unified IDDB database and future dataset exports are licensed under **CC BY-SA 4.0** (Attribution-ShareAlike 4.0 International), permitting open reuse and commercial website hosting with attribution.
+- The unified IDDb database and future dataset exports are licensed under **CC BY-SA 4.0** (Attribution-ShareAlike 4.0 International), permitting open reuse and commercial website hosting with attribution.
 - External identifiers for proprietary catalogs (`IMDb`, `TMDb`, `AniList`, `MyAnimeList`, etc.) are extracted strictly from `CC0` Wikidata as bridge keys for deduplication and outbound links; no proprietary payloads, biographies, credits, or images are stored or redistributed.
