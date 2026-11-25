@@ -92,6 +92,9 @@ class StudioRecord:
     replaced_by_qids: tuple[str, ...]
     followed_by_qids: tuple[str, ...]
     parent_org_qids: tuple[str, ...]
+    replaces_qids: tuple[str, ...] = ()
+    follows_qids: tuple[str, ...] = ()
+    child_org_qids: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -275,6 +278,9 @@ def transform_studio_bindings(bindings: list[dict[str, Any]]) -> tuple[list[Stud
         replaced_by = _parse_qids(_binding_value(row, "replacedByQids"))
         followed_by = _parse_qids(_binding_value(row, "followedByQids"))
         parent_orgs = _parse_qids(_binding_value(row, "parentOrgQids"))
+        replaces_qids = _parse_qids(_binding_value(row, "replacesQids"))
+        follows_qids = _parse_qids(_binding_value(row, "followsQids"))
+        child_org_qids = _parse_qids(_binding_value(row, "childOrgQids"))
 
         if replaced_by:
             status = "merged"
@@ -318,6 +324,9 @@ def transform_studio_bindings(bindings: list[dict[str, Any]]) -> tuple[list[Stud
             replaced_by_qids=replaced_by,
             followed_by_qids=followed_by,
             parent_org_qids=parent_orgs,
+            replaces_qids=replaces_qids,
+            follows_qids=follows_qids,
+            child_org_qids=child_org_qids,
         )
 
     return [by_qid[qid] for qid in sorted(by_qid)], discarded
@@ -522,6 +531,37 @@ def load_studios(conn: psycopg.Connection[dict[str, Any]], records: list[StudioR
                     (current["id"],),
                 )
             else:
+                # Preserve existing Wikipedia-backfilled attributes when Wikidata omits them.
+                merged_country = (
+                    rec.country_code if rec.country_code is not None else current["country_code"]
+                )
+                merged_city = rec.city if rec.city is not None else current["city"]
+                merged_founded = (
+                    rec.founded_year if rec.founded_year is not None else current["founded_year"]
+                )
+                merged_website = (
+                    rec.website_url if rec.website_url is not None else current["website_url"]
+                )
+                merged_closed = (
+                    rec.closed_year if rec.closed_year is not None else current["closed_year"]
+                )
+                if (
+                    merged_founded is not None
+                    and merged_closed is not None
+                    and merged_closed < merged_founded
+                ):
+                    merged_closed = None
+
+                if rec.status in ("closed", "merged"):
+                    merged_status = rec.status
+                elif current["status"] in ("closed", "merged") and merged_closed is not None:
+                    merged_status = current["status"]
+                else:
+                    merged_status = rec.status
+
+                if merged_status not in ("closed", "merged"):
+                    merged_closed = None
+
                 changed = (
                     current["name"],
                     current["status"],
@@ -533,12 +573,12 @@ def load_studios(conn: psycopg.Connection[dict[str, Any]], records: list[StudioR
                     current["primary_source"],
                 ) != (
                     rec.name,
-                    rec.status,
-                    rec.country_code,
-                    rec.city,
-                    rec.founded_year,
-                    rec.closed_year,
-                    rec.website_url,
+                    merged_status,
+                    merged_country,
+                    merged_city,
+                    merged_founded,
+                    merged_closed,
+                    merged_website,
                     "wikidata",
                 )
                 if changed:
@@ -552,12 +592,12 @@ def load_studios(conn: psycopg.Connection[dict[str, Any]], records: list[StudioR
                         """,
                         (
                             rec.name,
-                            rec.status,
-                            rec.country_code,
-                            rec.city,
-                            rec.founded_year,
-                            rec.closed_year,
-                            rec.website_url,
+                            merged_status,
+                            merged_country,
+                            merged_city,
+                            merged_founded,
+                            merged_closed,
+                            merged_website,
                             current["id"],
                         ),
                     )
@@ -607,7 +647,7 @@ def load_studios(conn: psycopg.Connection[dict[str, Any]], records: list[StudioR
                         "source": "wikidata",
                         "is_verified": False,
                     }
-                elif current_alias["is_verified"]:
+                elif current_alias["is_verified"] or current_alias["alias_type"] != "other":
                     cur.execute(
                         "UPDATE public.studio_aliases SET last_seen_at = NOW() WHERE id = %s",
                         (current_alias["id"],),
@@ -616,7 +656,7 @@ def load_studios(conn: psycopg.Connection[dict[str, Any]], records: list[StudioR
                     current_alias["alias_name"],
                     current_alias["alias_type"],
                     current_alias["source"],
-                ) != (alias_name, "other", "wikidata"):
+                ) != (alias_name, "other", "wikidata") and current_alias["source"] == "wikidata":
                     cur.execute(
                         """
                         UPDATE public.studio_aliases
@@ -664,6 +704,24 @@ def load_studios(conn: psycopg.Connection[dict[str, Any]], records: list[StudioR
                     seen_rel_keys.add(rel_key)
                     rel_candidates.append((studio_id, related_id, rel_type, event_year))
 
+        for rec in records:
+            studio_id = studio_id_by_qid[rec.wikidata_qid]
+            inverse_groups = (
+                ("merged_into", rec.replaces_qids, rec.founded_year),
+                ("succeeded_by", rec.follows_qids, rec.founded_year),
+                ("subsidiary_of", rec.child_org_qids, None),
+            )
+            for rel_type, sources, event_year in inverse_groups:
+                for source_qid in sources:
+                    source_id = studio_id_by_qid.get(source_qid)
+                    if source_id is None or source_id == studio_id:
+                        continue
+                    rel_key = (source_id, studio_id, rel_type)
+                    if rel_key in seen_rel_keys:
+                        continue
+                    seen_rel_keys.add(rel_key)
+                    rel_candidates.append((source_id, studio_id, rel_type, event_year))
+
         for studio_id, related_id, rel_type, event_year in rel_candidates:
             rel_key = (studio_id, related_id, rel_type)
             current_rel = existing_rels.get(rel_key)
@@ -683,21 +741,28 @@ def load_studios(conn: psycopg.Connection[dict[str, Any]], records: list[StudioR
                     "UPDATE public.studio_relationships SET last_seen_at = NOW() WHERE id = %s",
                     (current_rel["id"],),
                 )
-            elif (current_rel["event_year"], current_rel["source"]) != (event_year, "wikidata"):
-                cur.execute(
-                    """
-                    UPDATE public.studio_relationships
-                    SET event_year = %s, source = 'wikidata', last_seen_at = NOW(), updated_at = NOW()
-                    WHERE id = %s
-                    """,
-                    (event_year, current_rel["id"]),
-                )
-                rels_updated += 1
             else:
-                cur.execute(
-                    "UPDATE public.studio_relationships SET last_seen_at = NOW() WHERE id = %s",
-                    (current_rel["id"],),
+                merged_event_year = (
+                    event_year if event_year is not None else current_rel["event_year"]
                 )
+                if merged_event_year != current_rel["event_year"] or (
+                    current_rel["source"] == "wikidata"
+                    and current_rel["event_year"] != merged_event_year
+                ):
+                    cur.execute(
+                        """
+                        UPDATE public.studio_relationships
+                        SET event_year = %s, source = 'wikidata', last_seen_at = NOW(), updated_at = NOW()
+                        WHERE id = %s
+                        """,
+                        (merged_event_year, current_rel["id"]),
+                    )
+                    rels_updated += 1
+                else:
+                    cur.execute(
+                        "UPDATE public.studio_relationships SET last_seen_at = NOW() WHERE id = %s",
+                        (current_rel["id"],),
+                    )
 
     return {
         "inserted": inserted,

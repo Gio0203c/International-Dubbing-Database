@@ -488,3 +488,109 @@ def test_verified_protection_and_circuit_breaker(pg_env: None, monkeypatch: pyte
     )
     with pytest.raises(CircuitBreakerError):
         run_dubbing_sync(only="studios")
+
+
+def test_inverse_studio_lineage_and_wikipedia_backfill_preservation(pg_env: None) -> None:
+    studios, _ = transform_studio_bindings(
+        [
+            {
+                "studio": {"value": "http://www.wikidata.org/entity/Q701"},
+                "name": {"value": "Old Cooperative"},
+                "countryCodes": {"value": "IT"},
+            },
+            {
+                "studio": {"value": "http://www.wikidata.org/entity/Q702"},
+                "name": {"value": "Modern Group"},
+                "countryCodes": {"value": "IT"},
+                "inceptionDates": {"value": "1994-01-01T00:00:00Z"},
+                "replacesQids": {"value": "http://www.wikidata.org/entity/Q701"},
+                "childOrgQids": {"value": "http://www.wikidata.org/entity/Q703"},
+            },
+            {
+                "studio": {"value": "http://www.wikidata.org/entity/Q703"},
+                "name": {"value": "Local Branch"},
+                "countryCodes": {"value": "IT"},
+            },
+        ]
+    )
+    assert studios[1].replaces_qids == ("Q701",)
+    assert studios[1].child_org_qids == ("Q703",)
+
+    with transaction() as conn:
+        first = load_studios(conn, studios)
+        assert first["relationships_inserted"] == 2
+        with conn.cursor() as cur:
+            # Simulate Wikipedia backfilling city and a former_name alias on Q701
+            cur.execute(
+                "UPDATE public.studios SET city = 'Roma' WHERE wikidata_qid = 'Q701'"
+            )
+            cur.execute(
+                """
+                INSERT INTO public.studio_aliases (studio_id, alias_name, alias_type, source)
+                SELECT id, 'OldCo', 'former_name', 'itwiki'
+                FROM public.studios
+                WHERE wikidata_qid = 'Q701'
+                """
+            )
+
+    # Re-running Wikidata loader with altLabels matching OldCo and city=None must not clobber either
+    studios_with_alt, _ = transform_studio_bindings(
+        [
+            {
+                "studio": {"value": "http://www.wikidata.org/entity/Q701"},
+                "name": {"value": "Old Cooperative"},
+                "countryCodes": {"value": "IT"},
+                "altLabels": {"value": "OldCo"},
+            },
+            {
+                "studio": {"value": "http://www.wikidata.org/entity/Q702"},
+                "name": {"value": "Modern Group"},
+                "countryCodes": {"value": "IT"},
+                "inceptionDates": {"value": "1994-01-01T00:00:00Z"},
+                "replacesQids": {"value": "http://www.wikidata.org/entity/Q701"},
+                "childOrgQids": {"value": "http://www.wikidata.org/entity/Q703"},
+            },
+            {
+                "studio": {"value": "http://www.wikidata.org/entity/Q703"},
+                "name": {"value": "Local Branch"},
+                "countryCodes": {"value": "IT"},
+            },
+        ]
+    )
+    with transaction() as conn:
+        second = load_studios(conn, studios_with_alt)
+        assert second == {
+            "inserted": 0,
+            "updated": 0,
+            "aliases_inserted": 0,
+            "aliases_updated": 0,
+            "relationships_inserted": 0,
+            "relationships_updated": 0,
+        }
+        with conn.cursor() as cur:
+            cur.execute("SELECT city FROM public.studios WHERE wikidata_qid = 'Q701'")
+            assert cur.fetchone()["city"] == "Roma"
+            cur.execute("SELECT alias_type FROM public.studio_aliases WHERE alias_name = 'OldCo'")
+            assert cur.fetchone()["alias_type"] == "former_name"
+            cur.execute(
+                """
+                SELECT s1.name AS src, sr.relationship_type, sr.event_year, s2.name AS dst
+                FROM public.studio_relationships sr
+                JOIN public.studios s1 ON s1.id = sr.studio_id
+                JOIN public.studios s2 ON s2.id = sr.related_studio_id
+                ORDER BY src, sr.relationship_type
+                """
+            )
+            edges = cur.fetchall()
+            assert len(edges) == 2
+            assert (edges[0]["src"], edges[0]["relationship_type"], edges[0]["dst"]) == (
+                "Local Branch",
+                "subsidiary_of",
+                "Modern Group",
+            )
+            assert (edges[1]["src"], edges[1]["relationship_type"], edges[1]["event_year"], edges[1]["dst"]) == (
+                "Old Cooperative",
+                "merged_into",
+                1994,
+                "Modern Group",
+            )

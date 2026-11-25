@@ -18,12 +18,20 @@ SELECT
   (GROUP_CONCAT(DISTINCT STR(?rawReplacedBy); separator="|") AS ?replacedByQids)
   (GROUP_CONCAT(DISTINCT STR(?rawFollowedBy); separator="|") AS ?followedByQids)
   (GROUP_CONCAT(DISTINCT STR(?rawParentOrg); separator="|") AS ?parentOrgQids)
+  (GROUP_CONCAT(DISTINCT STR(?rawReplaces); separator="|") AS ?replacesQids)
+  (GROUP_CONCAT(DISTINCT STR(?rawFollows); separator="|") AS ?followsQids)
+  (GROUP_CONCAT(DISTINCT STR(?rawChildOrg); separator="|") AS ?childOrgQids)
   (MIN(?rawWebsiteStr) AS ?websiteUrl)
   (GROUP_CONCAT(DISTINCT STR(?rawAltLabel); separator="|") AS ?altLabels)
 WHERE {
   { ?studio wdt:P31 wd:Q1298801 . }
   UNION
+  { ?studio wdt:P31/wdt:P279+ wd:Q1298801 . }
+  UNION
+  { ?studio wdt:P1056 wd:Q187657 . }
+  UNION
   { ?studio wdt:P452 wd:Q187657 . }
+  FILTER NOT EXISTS { ?studio wdt:P31 wd:Q5 }
 
   OPTIONAL { ?studio rdfs:label ?lIt . FILTER(LANG(?lIt) = "it") BIND(STR(?lIt) AS ?rawNameIt) }
   OPTIONAL { ?studio rdfs:label ?lEn . FILTER(LANG(?lEn) = "en") BIND(STR(?lEn) AS ?rawNameEn) }
@@ -45,6 +53,9 @@ WHERE {
   OPTIONAL { ?studio wdt:P1366 ?rawReplacedBy . }
   OPTIONAL { ?studio wdt:P156 ?rawFollowedBy . }
   OPTIONAL { ?studio wdt:P749 ?rawParentOrg . }
+  OPTIONAL { ?studio wdt:P1365 ?rawReplaces . }
+  OPTIONAL { ?studio wdt:P155 ?rawFollows . }
+  OPTIONAL { ?studio wdt:P355 ?rawChildOrg . }
   OPTIONAL { ?studio wdt:P856 ?ws . BIND(STR(?ws) AS ?rawWebsiteStr) }
   OPTIONAL {
     ?studio skos:altLabel ?rawAltLabel .
