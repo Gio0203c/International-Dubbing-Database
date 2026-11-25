@@ -424,3 +424,154 @@ def test_core_dubbing_constraints_and_cascades(pg_env: None) -> None:
         eds_left = conn.execute("SELECT COUNT(*) AS n FROM public.dubbing_editions WHERE id = %s", (ed1,)).fetchone()["n"]
         credits_left = conn.execute("SELECT COUNT(*) AS n FROM public.dubbing_credits WHERE dubbing_edition_id = %s", (ed1,)).fetchone()["n"]
     assert (eds_left, credits_left) == (0, 0)
+
+
+def test_studio_aliases_status_and_lineage(pg_env: None) -> None:
+    with transaction() as conn:
+        # Scenario 1: Single company renaming over time (Gruppo Trenta -> Pumais -> Pumaisdue)
+        st_pumaisdue = int(
+            conn.execute(
+                """
+                INSERT INTO public.studios (name, status, country_code, city, founded_year)
+                VALUES ('Pumaisdue', 'active', 'IT', 'Rome', 1980)
+                RETURNING id
+                """
+            ).fetchone()["id"]
+        )
+        conn.execute(
+            """
+            INSERT INTO public.studio_aliases (studio_id, alias_name, alias_type, start_year, end_year)
+            VALUES
+                (%s, 'Gruppo Trenta', 'former_name', 1980, 1994),
+                (%s, 'Pumais', 'former_name', 1994, 2000)
+            """,
+            (st_pumaisdue, st_pumaisdue),
+        )
+        m_retro = int(
+            conn.execute(
+                "INSERT INTO public.media_sources (original_title, media_type, release_year) VALUES ('Legacy Film', 'movie', 1988) RETURNING id"
+            ).fetchone()["id"]
+        )
+        conn.execute(
+            """
+            INSERT INTO public.dubbing_editions (media_source_id, studio_id, studio_credited_as, lang_code, edition_type, release_year)
+            VALUES (%s, %s, 'Gruppo Trenta', 'it', 'dub', 1988)
+            """,
+            (m_retro, st_pumaisdue),
+        )
+
+        # Scenario 2: Distinct studios merging (CDC + Sefit -> CDC Sefit Group)
+        st_cdc = int(
+            conn.execute(
+                "INSERT INTO public.studios (name, status, founded_year, closed_year) VALUES ('CDC', 'merged', 1932, 1994) RETURNING id"
+            ).fetchone()["id"]
+        )
+        st_sefit = int(
+            conn.execute(
+                "INSERT INTO public.studios (name, status, founded_year, closed_year) VALUES ('Sefit', 'merged', 1964, 1994) RETURNING id"
+            ).fetchone()["id"]
+        )
+        st_cdc_sefit = int(
+            conn.execute(
+                "INSERT INTO public.studios (name, status, founded_year) VALUES ('CDC Sefit Group', 'active', 1994) RETURNING id"
+            ).fetchone()["id"]
+        )
+        conn.execute(
+            """
+            INSERT INTO public.studio_relationships (studio_id, related_studio_id, relationship_type, event_year)
+            VALUES
+                (%s, %s, 'merged_into', 1994),
+                (%s, %s, 'merged_into', 1994)
+            """,
+            (st_cdc, st_cdc_sefit, st_sefit, st_cdc_sefit),
+        )
+
+        # Scenario 3: Multi-hop lineage (SDI Media -> Iyuno-SDI -> Iyuno) + closed without year
+        st_sdi = int(
+            conn.execute("INSERT INTO public.studios (name, status) VALUES ('SDI Media', 'merged') RETURNING id").fetchone()["id"]
+        )
+        st_iyuno_sdi = int(
+            conn.execute("INSERT INTO public.studios (name, status) VALUES ('Iyuno-SDI', 'merged') RETURNING id").fetchone()["id"]
+        )
+        st_iyuno = int(
+            conn.execute("INSERT INTO public.studios (name, status) VALUES ('Iyuno', 'active') RETURNING id").fetchone()["id"]
+        )
+        conn.execute("INSERT INTO public.studios (name, status) VALUES ('Defunct Unnamed Studio', 'closed')")
+        conn.execute(
+            """
+            INSERT INTO public.studio_relationships (studio_id, related_studio_id, relationship_type, event_year)
+            VALUES
+                (%s, %s, 'merged_into', 2021),
+                (%s, %s, 'succeeded_by', 2022)
+            """,
+            (st_sdi, st_iyuno_sdi, st_iyuno_sdi, st_iyuno),
+        )
+
+        # Verify alias resolution and recursive multi-hop resolution
+        resolved_alias = conn.execute(
+            """
+            SELECT s.name, s.status
+            FROM public.studio_aliases sa
+            JOIN public.studios s ON s.id = sa.studio_id
+            WHERE lower(sa.alias_name) = lower('Gruppo Trenta')
+            """
+        ).fetchone()
+        resolved_lineage = conn.execute(
+            """
+            WITH RECURSIVE lineage AS (
+                SELECT id, name, status, 0 AS hops, ARRAY[id] AS path
+                FROM public.studios
+                WHERE name = 'SDI Media'
+                UNION ALL
+                SELECT nxt.id, nxt.name, nxt.status, l.hops + 1, l.path || nxt.id
+                FROM lineage l
+                JOIN public.studio_relationships sr ON sr.studio_id = l.id
+                JOIN public.studios nxt ON nxt.id = sr.related_studio_id
+                WHERE NOT (nxt.id = ANY(l.path))
+            )
+            SELECT name, status, hops
+            FROM lineage
+            ORDER BY hops DESC
+            LIMIT 1
+            """
+        ).fetchone()
+
+    assert resolved_alias == {"name": "Pumaisdue", "status": "active"}
+    assert resolved_lineage == {"name": "Iyuno", "status": "active", "hops": 2}
+
+    # Check violations (including closed_year with NULL or 'active' status)
+    bad_studio_sql = [
+        ("INSERT INTO public.studios (name, status, closed_year) VALUES ('Bad 1', NULL, 1994)", ()),
+        ("INSERT INTO public.studios (name, status, closed_year) VALUES ('Bad 2', 'active', 1994)", ()),
+        ("INSERT INTO public.studios (name, status) VALUES ('Bad 3', 'bankrupt')", ()),
+        ("INSERT INTO public.dubbing_editions (media_source_id, lang_code, edition_type, studio_credited_as) VALUES (%s, 'fr', 'dub', '   ')", (m_retro,)),
+        ("INSERT INTO public.studio_aliases (studio_id, alias_name, start_year, end_year) VALUES (%s, 'Bad Years', 2000, 1995)", (st_pumaisdue,)),
+        ("INSERT INTO public.studio_relationships (studio_id, related_studio_id, relationship_type) VALUES (%s, %s, 'merged_into')", (st_cdc, st_cdc)),
+        ("INSERT INTO public.studio_relationships (studio_id, related_studio_id, relationship_type) VALUES (%s, %s, 'spun_off')", (st_cdc, st_iyuno)),
+    ]
+    for sql, params in bad_studio_sql:
+        with pytest.raises(psycopg.errors.CheckViolation):
+            with transaction() as conn:
+                conn.execute(sql, params)
+
+    # Unique violations and ON DELETE CASCADE
+    with pytest.raises(psycopg.errors.UniqueViolation):
+        with transaction() as conn:
+            conn.execute(
+                "INSERT INTO public.studio_aliases (studio_id, alias_name, start_year) VALUES (%s, ' gruppo trenta ', 1980)",
+                (st_pumaisdue,),
+            )
+    with pytest.raises(psycopg.errors.UniqueViolation):
+        with transaction() as conn:
+            conn.execute(
+                "INSERT INTO public.studio_relationships (studio_id, related_studio_id, relationship_type) VALUES (%s, %s, 'merged_into')",
+                (st_cdc, st_cdc_sefit),
+            )
+
+    with transaction() as conn:
+        conn.execute("DELETE FROM public.studios WHERE id = %s", (st_pumaisdue,))
+        aliases_left = conn.execute(
+            "SELECT COUNT(*) AS n FROM public.studio_aliases WHERE studio_id = %s",
+            (st_pumaisdue,),
+        ).fetchone()["n"]
+    assert aliases_left == 0

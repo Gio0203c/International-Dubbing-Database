@@ -178,3 +178,20 @@ The entity-relationship diagram for these tables is in [dubbing_er.puml](diagram
 ### Consequences
 
 Re-dubs, regional localizations, original voice casts, non-acting crew credits, episodic voice changes, and live-action character-actor-speaker triples (`character | original_actor | dubbing_speaker`) are all queryable in normalized SQL without duplicating works or characters. Indexes on `dubbing_credits (speaker_id, role_type)` and `(role_type, speaker_id)` support fast filtering by localization role (such as listing all dubbing directors or dialogue adapters).
+
+## ADR-008: Studio Lifecycle, Former Names, and Corporate Lineage
+
+### Context
+
+Dubbing studios frequently rename over time (for instance, a single company rebranding from `Gruppo Trenta` to `Pumais` and later `Pumaisdue`) or cease independent operation through corporate mergers and acquisitions (for instance, `CDC` and `Sefit` merging into `CDC Sefit Group`, or multi-step acquisitions such as `SDI Media` -> `Iyuno-SDI` -> `Iyuno`). Older dubbing editions still credit the historical studio name used at release time, and users searching a legacy name need to understand both its current operational status and its modern successor.
+
+### Decision
+
+`sql/migrations/009_add_studio_history_and_aliases.sql` models studio rebrands, lifecycle state, and corporate lineage cleanly across two mechanisms:
+
+- **Same studio, historical rebrands:** `public.studio_aliases` stores `alias_name`, controlled `alias_type` (`former_name`, `legal_name`, `abbreviation`, `other`), and optional `start_year`/`end_year` bounds, with a NULL-safe functional unique index `uq_studio_aliases_studio_name_start` on `(studio_id, lower(btrim(alias_name)), COALESCE(start_year, 0))`. `public.dubbing_editions` adds an optional `studio_credited_as` column so an edition can retain the historical screen credit alongside `studio_id`.
+- **Distinct entities merging or closing:** `public.studios` adds `status TEXT NULL` (`CHECK (status IS NULL OR status IN ('active', 'closed', 'merged'))`) paired with `chk_studios_closed_year_implies_inactive` (`closed_year IS NULL OR (status IS NOT NULL AND status IN ('closed', 'merged'))`), allowing inactive studios to be flagged even when `closed_year` is unknown. `public.studio_relationships` models directed corporate transitions (`merged_into`, `succeeded_by`, `acquired_by`, `subsidiary_of`) with optional `event_year`, non-self check, and `UNIQUE (studio_id, related_studio_id, relationship_type)`.
+
+### Consequences
+
+Historical edition credits stay intact under either historical aliases or predecessor entities without losing attribution. Searching any former or merged studio immediately resolves its status (`active`, `closed`, `merged`), legacy time span, and current corporate successor via single-hop joins or recursive lineage traversal (`WITH RECURSIVE`), reflected in [dubbing_er.puml](diagrams/dubbing_er.puml).

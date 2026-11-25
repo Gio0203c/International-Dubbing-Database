@@ -42,6 +42,7 @@ package "public schema (core dubbing model)" {
     * public_id : TEXT <<UK, generated>>
     --
     * name : TEXT
+    status : TEXT
     country_code : TEXT
     city : TEXT
     founded_year : SMALLINT
@@ -56,12 +57,44 @@ package "public schema (core dubbing model)" {
     * updated_at : TIMESTAMPTZ
   }
 
+  entity "public.studio_aliases" as studio_aliases {
+    * id : BIGINT <<PK, identity>>
+    --
+    * studio_id : BIGINT <<FK, UK>>
+    * alias_name : TEXT <<UK>>
+    * alias_type : TEXT
+    start_year : SMALLINT <<UK>>
+    end_year : SMALLINT
+    --
+    * source : TEXT
+    * is_verified : BOOLEAN
+    last_seen_at : TIMESTAMPTZ
+    * created_at : TIMESTAMPTZ
+    * updated_at : TIMESTAMPTZ
+  }
+
+  entity "public.studio_relationships" as studio_relationships {
+    * id : BIGINT <<PK, identity>>
+    --
+    * studio_id : BIGINT <<FK, UK>>
+    * related_studio_id : BIGINT <<FK, UK>>
+    * relationship_type : TEXT <<UK>>
+    event_year : SMALLINT
+    --
+    * source : TEXT
+    * is_verified : BOOLEAN
+    last_seen_at : TIMESTAMPTZ
+    * created_at : TIMESTAMPTZ
+    * updated_at : TIMESTAMPTZ
+  }
+
   entity "public.dubbing_editions" as dubbing_editions {
     * id : BIGINT <<PK, identity>>
     * public_id : TEXT <<UK, generated>>
     --
     * media_source_id : BIGINT <<FK, UK>>
     studio_id : BIGINT <<FK>>
+    studio_credited_as : TEXT
     * lang_code : TEXT <<UK>>
     region_code : TEXT <<UK>>
     * edition_type : TEXT <<UK>>
@@ -118,7 +151,16 @@ package "public schema (core dubbing model)" {
 media_sources |o--o{ media_sources : "parent_media_id (optional)"
 media_sources ||--o{ dubbing_editions : "editions"
 studios |o--o{ dubbing_editions : "studio_id (optional)"
+studios ||--o{ studio_aliases : "aliases"
+studios ||--o{ studio_relationships : "studio_id (source)"
+studios ||--o{ studio_relationships : "related_studio_id (target)"
 media_sources |o--o{ characters : "origin work (optional)"
+
+note bottom of studio_aliases
+  <<UK>> columns form NULL-safe functional unique index
+  uq_studio_aliases_studio_name_start
+  (studio_id, lower(btrim(alias_name)), COALESCE(start_year, 0)).
+end note
 dubbing_editions ||--o{ dubbing_credits : "credits"
 speakers ||--o{ dubbing_credits : "credits"
 characters |o--o{ dubbing_credits : "character_id (optional)"
