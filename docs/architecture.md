@@ -16,7 +16,7 @@ IDDb separates software licensing from database licensing: repository code, SQL 
 
 IDDb uses two schemas inside the same PostgreSQL database: `staging` and `public`.
 
-The `staging` schema acts as a landing zone for raw upstream payloads. For Wikidata, `staging.wikidata_raw` stores the unmodified payload in a `JSONB` column alongside `fetched_at` and a content hash, with no strict domain constraints. This keeps extraction resilient against messy upstream data, lets the transform step be re-run locally without hitting external APIs again, and preserves any new properties added upstream in Wikidata without running automatic `ALTER TABLE` statements during ETL runs.
+The `staging` schema acts as a landing zone for raw upstream payloads. `staging.wikidata_raw` stores unmodified WDQS JSONB payloads alongside `fetched_at` and a content hash, while `staging.wikipedia_raw` archives multi-language Wikipedia page revisions (`wiki_lang`, `page_id`, `revision_id`, `wikitext`, `content_hash`, and anti-data-laundering compliance flags) with no rigid domain constraints. Keeping raw data in staging preserves reproducible parsing, avoids extra upstream calls, and shields `public` from noisy or flagged entries.
 
 The `public` schema holds normalized, strictly typed domain tables and the `etl_runs` audit table (`speakers` and its satellite tables in ADR-001 through ADR-006, works, studios, dubbing editions, characters, and credits in ADR-007 through ADR-008, and provenance/audit governance in ADR-009). When a new upstream property proves stable and useful across sources, it is promoted into `public` through a deliberate, versioned SQL migration.
 
@@ -219,3 +219,22 @@ Portrait/image asset tables (`entity_images`) are intentionally deferred until n
 ### Consequences
 
 Any exported `CC BY-SA 4.0` dataset can compile a complete `ATTRIBUTION.md` directly from `public.provenance_records` and fail fast if required attributions or revision links are missing. Primary credits remain auditable without exposing contributor personal data or persisting photographic media, while `public.audit_log` preserves an immutable verification trail across automated ETL runs and human edits.
+
+## ADR-010: Multi-Language Wikipedia Ingestion, Anti-Data-Laundering Guards, and Attribution Export
+
+### Context
+
+Wikidata does not capture every voice actor documented on encyclopedia editions such as Italian Wikipedia (`Categoria:Doppiatori italiani` via `Categoria:Doppiatori italiani per secolo` across 20th- and 21st-century subcategories), because many profiles lack `P106 = Q11481802` or occasionally have no Wikidata item yet. At the same time, extracting content from Wikipedia requires full `CC BY-SA 4.0` attribution (`page_id`, `revision_id`, permalink) under Section 4 database-rights rules and strict anti-data-laundering safeguards so unverified or copyviol-flagged pages copied from proprietary catalogs never contaminate `public` tables.
+
+### Decision
+
+`sql/migrations/011_create_staging_wikipedia.sql` introduces `staging.wikipedia_raw` alongside a language-agnostic Python connector (`etl/wikipedia/`) and compliance-gated attribution exporter (`etl/export_attribution.py`):
+
+- **Polite multi-language extraction:** `etl/wikipedia/extract.py` queries MediaWiki Action API (`maxlag=5`, batched 50 titles per request, `User-Agent` policy compliant, honoring `Retry-After` and exponential backoff) starting with `--lang it` defaults and naturally extensible to `--lang en`, `--lang ja`, or explicit category overrides. Every fetched revision is deduplicated by `(wiki_lang, page_id, revision_id)` in `staging.wikipedia_raw`.
+- **Anti-data-laundering and conservative promotion:** `etl/wikipedia/transform.py` scans wikitext for copyviol templates (`Controlcopy`, `ViolazioneCopyright`, `Copyvio`), unsourced notices (`F`, `NN`, `Senza fonti`, `Unreferenced`), and third-party catalog references (`antoniogenna.net`). Pages flagged with `copyviol_template` are blocked from `public`, unsourced/flagged pages suppress biographical `NULL` backfills, and `== Doppiaggio ==` / cast lists remain strictly inside `staging.wikipedia_raw` without touching `public.dubbing_credits` until primary verification exists.
+- **Speaker matching, null-safe backfill, and `CC BY-SA 4.0` provenance:** `etl/wikipedia/load.py` resolves speakers via `wikidata_qid` or normalized `{wiki_lang}wiki` links in `public.speaker_external_ids`, fills only `NULL` safe biographical attributes when `is_verified = FALSE` and `allow_bio_backfill = TRUE`, inserts confirmed new person articles (even without a Wikidata QID yet), records the wiki sitelink cleanly, and inserts immutable `CC-BY-SA-4.0` provenance rows citing exact `oldid` URLs in `public.provenance_records`.
+- **Attribution exporter:** `etl/export_attribution.py` builds `ATTRIBUTION.md` directly from `public.provenance_records` and fails fast (`ComplianceExportError`) if any record lacks valid attribution, references unaccepted contributors, or uses restricted `NC`/`ND` licenses.
+
+### Consequences
+
+IDDb captures voice actors present on Wikipedia before they receive `P106` or a `QID` on Wikidata, generates candidates for upstream Wikidata curation without blind bot creation, guarantees zero redundant writes on consecutive ETL runs, and enforces automated `CC BY-SA 4.0` compliance prior to publishing any dataset dump.

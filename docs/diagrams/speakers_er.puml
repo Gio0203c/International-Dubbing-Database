@@ -12,6 +12,23 @@ package "staging schema" {
     * payload_hash : TEXT
     * fetched_at : TIMESTAMPTZ
   }
+
+  entity "staging.wikipedia_raw" as wikipedia_raw {
+    * id : BIGINT <<PK, identity>>
+    --
+    run_id : BIGINT <<logical FK>>
+    * wiki_lang : TEXT <<UK>>
+    * page_id : BIGINT <<UK>>
+    * revision_id : BIGINT <<UK>>
+    * page_title : TEXT
+    * page_url : TEXT
+    wikidata_qid : TEXT
+    * wikitext : TEXT
+    * content_hash : TEXT
+    * has_copyviol_or_unsourced_flag : BOOLEAN
+    * compliance_flags : TEXT[]
+    * fetched_at : TIMESTAMPTZ
+  }
 }
 
 package "public schema" {
@@ -126,7 +143,9 @@ speakers ||--o{ speaker_aliases : "aliases"
 speakers ||--o{ speaker_languages : "languages"
 speakers ||--o{ speaker_external_ids : "external IDs"
 etl_runs |o..o{ wikidata_raw : "logical run reference (no rigid FK)"
+etl_runs |o..o{ wikipedia_raw : "logical run reference (no rigid FK)"
 wikidata_raw ..> speakers : "transformed & upserted via wikidata_qid / bridge IDs"
+wikipedia_raw ..> speakers : "screened & upserted via wikidata_qid / wiki sitelink"
 
 note bottom of speaker_aliases
   <<UK>> marks functional index uq_speaker_aliases_speaker_name_locale
