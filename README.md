@@ -28,4 +28,6 @@ Database migrations and ETL scripts are currently under initial development.
 
 ## License
 
-International Dubbing Database is released under the Apache License, Version 2.0. See [LICENSE](LICENSE) for details.
+- Repository engine, SQL migrations, SPARQL queries, Python ETL code, and tests are licensed under the **Apache License, Version 2.0**. See [LICENSE](LICENSE) for details.
+- The unified IDDB database and future dataset exports are licensed under **CC BY-SA 4.0** (Attribution-ShareAlike 4.0 International), permitting open reuse and commercial website hosting with attribution.
+- External identifiers for proprietary catalogs (`IMDb`, `TMDb`, `AniList`, `MyAnimeList`, etc.) are extracted strictly from `CC0` Wikidata as bridge keys for deduplication and outbound links; no proprietary payloads, biographies, credits, or images are stored or redistributed.

@@ -8,6 +8,10 @@ IDDB follows the MusicBrainz model of separating the database engine from live d
 
 Every change to the PostgreSQL schema must be defined in a numbered migration file under `sql/migrations/`. Tables and constraints are never created manually without a matching migration script, so anyone can clone the repository and rebuild an identical empty database from scratch.
 
+## Licensing and Data Governance
+
+IDDB separates software licensing from database licensing: repository code, SQL migrations, SPARQL queries, and tests are distributed under **Apache 2.0**, while the unified public database and future dataset exports are licensed under **CC BY-SA 4.0**. Only open-license or primary-verified sources compatible with **CC BY-SA 4.0** (such as Wikidata `CC0`, official Wikipedia APIs/dumps `CC BY-SA 4.0`, Wikimedia Commons per-file open assets, TVmaze textual metadata `CC BY-SA`, MusicBrainz Core Data `CC0`, and primary-verified end credits) may enter `public.*`. External IDs for proprietary services (`IMDb`, `TMDB`, `AniList`, `MyAnimeList`, `AniDB`, `BTVA`) are harvested solely from `CC0` Wikidata under a strict **Bridge-IDs-Only** rule for deduplication and outbound links.
+
 ## Two-Schema Database Model
 
 IDDB uses two schemas inside the same PostgreSQL database: `staging` and `public`.
@@ -20,7 +24,7 @@ The `public` schema holds normalized, strictly typed domain tables and the `etl_
 
 ### Context
 
-A speaker table needs a primary key that is unique, non-null, and immutable because future tables such as casts and external-ID links will reference it with foreign keys. Natural keys fail this requirement: `display_name` is neither unique nor permanent, and external IDs such as `wikidata_qid` tie the database to a single provider. A voice actor sourced from TMDB, AniList, or closing credits may not yet have a Wikidata item, and Wikidata items are periodically merged or redirected.
+A speaker table needs a primary key that is unique, non-null, and immutable because future tables such as casts and external-ID links will reference it with foreign keys. Natural keys fail this requirement: `display_name` is neither unique nor permanent, and external IDs such as `wikidata_qid` tie the database to a single provider. A voice actor sourced from official closing credits, studio press releases, or Wikipedia may not yet have a Wikidata item, and Wikidata items are periodically merged or redirected.
 
 ### Decision
 
@@ -72,7 +76,7 @@ Birth and death dates are stored as separate `SMALLINT` components (`birth_year`
 | `country_code` | `TEXT NULL CHECK (country_code ~ '^[A-Z]{2}$')` | Primary ISO 3166-1 alpha-2 country code |
 | `wikidata_qid` | `TEXT UNIQUE NULL CHECK (wikidata_qid ~ '^Q[1-9][0-9]*$')` | Wikidata bridge identifier |
 | `imdb_nconst` | `TEXT UNIQUE NULL CHECK (imdb_nconst ~ '^nm[0-9]+$')` | IMDb person bridge identifier (ID only, never IMDb dumps) |
-| `tmdb_person_id` | `INTEGER UNIQUE NULL CHECK (tmdb_person_id > 0)` | TMDB person bridge identifier |
+| `tmdb_person_id` | `INTEGER UNIQUE NULL CHECK (tmdb_person_id > 0)` | TMDB person bridge identifier (ID only, never TMDB API payloads) |
 | `primary_source` | `TEXT NOT NULL DEFAULT 'wikidata' CHECK (btrim(primary_source) <> '')` | Source that originated or owns the record |
 | `is_verified` | `BOOLEAN NOT NULL DEFAULT FALSE` | Protects manually verified rows from automated overwrites |
 | `last_seen_at` | `TIMESTAMPTZ NULL` | Last timestamp when an automated ETL run confirmed the record |
@@ -85,7 +89,7 @@ The entity-relationship diagram for the initial tables is in [speakers_er.puml](
 
 ### Context
 
-IDDB will sync periodically from Wikidata and later ingest additional legal sources (such as TMDB API, AniList GraphQL, and Wikipedia categories via the MediaWiki API). Automated pipelines must avoid duplicate records, unnecessary writes, accidental deletion of valid entries during upstream outages, and overwriting manual corrections.
+IDDB will sync periodically from Wikidata and later ingest additional open-license or primary sources compatible with CC BY-SA 4.0 (such as Wikipedia via the MediaWiki API or official dumps, TVmaze textual metadata, MusicBrainz Core Data CC0, and primary-verified closing credits), while restricting proprietary catalogs (TMDB, IMDb, AniList, MyAnimeList, AniDB, BTVA) strictly to CC0 Wikidata bridge identifiers. Automated pipelines must avoid duplicate records, unnecessary writes, accidental deletion of valid entries during upstream outages, and overwriting manual corrections.
 
 ### Decision
 

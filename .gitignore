@@ -36,6 +36,28 @@ exports/
 backups/
 !tests/fixtures/**
 
+# Local OCR captures, domestic end-credit photos, and ephemeral drafts (never persist or commit)
+*.png
+*.jpg
+*.jpeg
+*.webp
+*.bmp
+*.tif
+*.tiff
+*.heic
+*.ocr.json
+*.ocr.yaml
+ocr_tmp/
+captures/
+screenshots/
+end_credits/
+drafts/
+
+# Local Wikimedia XML dumps
+*.xml
+*.xml.bz2
+*.xml.gz
+
 # Logs
 *.log
 
