@@ -1,0 +1,70 @@
+# Media works linked to Italian dubbing actors via P725 (directly on the work or
+# indirectly through a fictional character with P1441 present-in-work).
+PREFIX rdfs: <http://www.w3.org/2000/01/rdf-schema#>
+PREFIX wd: <http://www.wikidata.org/entity/>
+PREFIX wdt: <http://www.wikidata.org/prop/direct/>
+
+SELECT
+  ?work
+  (MIN(?rawTitleProp) AS ?titleProp)
+  (MIN(?rawLabelEn) AS ?labelEn)
+  (MIN(?rawLabelIt) AS ?italianTitle)
+  (GROUP_CONCAT(DISTINCT STR(?rawP31); separator="|") AS ?p31Qids)
+  (GROUP_CONCAT(DISTINCT STR(?rawReleaseDate); separator="|") AS ?releaseDates)
+  (GROUP_CONCAT(DISTINCT STR(?rawEndDate); separator="|") AS ?endDates)
+  (GROUP_CONCAT(DISTINCT ?rawOrigLangCode; separator="|") AS ?originalLangs)
+  (GROUP_CONCAT(DISTINCT ?rawCountryCode; separator="|") AS ?countryCodes)
+  (GROUP_CONCAT(DISTINCT ?rawImdbId; separator="|") AS ?imdbIds)
+  (GROUP_CONCAT(DISTINCT ?rawTmdbMovieId; separator="|") AS ?tmdbMovieIds)
+  (GROUP_CONCAT(DISTINCT ?rawTmdbTvId; separator="|") AS ?tmdbTvIds)
+  (GROUP_CONCAT(DISTINCT ?rawAnilistId; separator="|") AS ?anilistIds)
+WITH {
+  SELECT DISTINCT ?speaker WHERE {
+    ?speaker wdt:P31 wd:Q5 ;
+             wdt:P106 wd:Q2405480 ;
+             wdt:P27 wd:Q38 .
+  }
+} AS %speakers
+WITH {
+  SELECT DISTINCT ?work WHERE {
+    INCLUDE %speakers
+    {
+      ?work wdt:P725 ?speaker .
+      FILTER NOT EXISTS { ?work wdt:P1441 ?someWork . }
+    }
+    UNION
+    {
+      ?character wdt:P725 ?speaker ;
+                 wdt:P1441 ?work .
+    }
+  }
+} AS %works
+WHERE {
+  INCLUDE %works
+
+  OPTIONAL { ?work wdt:P1476 ?tProp . BIND(STR(?tProp) AS ?rawTitleProp) }
+  OPTIONAL { ?work rdfs:label ?lEn . FILTER(LANG(?lEn) = "en") BIND(STR(?lEn) AS ?rawLabelEn) }
+  OPTIONAL { ?work rdfs:label ?lIt . FILTER(LANG(?lIt) = "it") BIND(STR(?lIt) AS ?rawLabelIt) }
+
+  OPTIONAL { ?work wdt:P31 ?rawP31 . }
+  OPTIONAL {
+    { ?work wdt:P577 ?rawReleaseDate . }
+    UNION
+    { ?work wdt:P580 ?rawReleaseDate . }
+  }
+  OPTIONAL { ?work wdt:P582 ?rawEndDate . }
+  OPTIONAL {
+    ?work wdt:P364 ?origLang .
+    ?origLang wdt:P218 ?rawOrigLangCode .
+  }
+  OPTIONAL {
+    ?work wdt:P495 ?country .
+    ?country wdt:P297 ?rawCountryCode .
+  }
+  OPTIONAL { ?work wdt:P345 ?rawImdbId . }
+  OPTIONAL { ?work wdt:P4947 ?rawTmdbMovieId . }
+  OPTIONAL { ?work wdt:P4983 ?rawTmdbTvId . }
+  OPTIONAL { ?work wdt:P8729 ?rawAnilistId . }
+}
+GROUP BY ?work
+ORDER BY ?work

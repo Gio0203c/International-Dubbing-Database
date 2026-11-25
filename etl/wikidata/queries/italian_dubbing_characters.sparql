@@ -1,0 +1,52 @@
+# Characters voiced by Italian dubbing actors via direct character P725 + P1441
+# or via work-level P725 with P453 character role qualifier.
+PREFIX p: <http://www.wikidata.org/prop/>
+PREFIX pq: <http://www.wikidata.org/prop/qualifier/>
+PREFIX ps: <http://www.wikidata.org/prop/statement/>
+PREFIX rdfs: <http://www.w3.org/2000/01/rdf-schema#>
+PREFIX wd: <http://www.wikidata.org/entity/>
+PREFIX wdt: <http://www.wikidata.org/prop/direct/>
+
+SELECT
+  ?character
+  (MIN(?rawNameIt) AS ?nameIt)
+  (MIN(?rawNameEn) AS ?nameEn)
+  (GROUP_CONCAT(DISTINCT STR(?rawWork); separator="|") AS ?workQids)
+  (GROUP_CONCAT(DISTINCT STR(?rawGender); separator="|") AS ?genderQids)
+  (GROUP_CONCAT(DISTINCT ?rawAnilistCharId; separator="|") AS ?anilistCharIds)
+  (GROUP_CONCAT(DISTINCT STR(?rawP31); separator="|") AS ?p31Qids)
+WITH {
+  SELECT DISTINCT ?speaker WHERE {
+    ?speaker wdt:P31 wd:Q5 ;
+             wdt:P106 wd:Q2405480 ;
+             wdt:P27 wd:Q38 .
+  }
+} AS %speakers
+WITH {
+  SELECT DISTINCT ?character ?work WHERE {
+    INCLUDE %speakers
+    {
+      ?character wdt:P725 ?speaker ;
+                 wdt:P1441 ?work .
+    }
+    UNION
+    {
+      ?work p:P725 ?stmt .
+      ?stmt ps:P725 ?speaker ;
+            pq:P453 ?character .
+    }
+  }
+} AS %characterWorks
+WHERE {
+  INCLUDE %characterWorks
+  BIND(?work AS ?rawWork)
+
+  OPTIONAL { ?character rdfs:label ?lIt . FILTER(LANG(?lIt) = "it") BIND(STR(?lIt) AS ?rawNameIt) }
+  OPTIONAL { ?character rdfs:label ?lEn . FILTER(LANG(?lEn) = "en") BIND(STR(?lEn) AS ?rawNameEn) }
+
+  OPTIONAL { ?character wdt:P21 ?rawGender . }
+  OPTIONAL { ?character wdt:P11736 ?rawAnilistCharId . }
+  OPTIONAL { ?character wdt:P31 ?rawP31 . }
+}
+GROUP BY ?character
+ORDER BY ?character

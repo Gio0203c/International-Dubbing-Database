@@ -1,0 +1,54 @@
+# P725 voice credits for Italian dubbing actors, capturing either work-level
+# statements (with optional P453 character qualifier) or character P725 + P1441 links,
+# plus P407 language qualifier and P1810 credited-as label when available.
+PREFIX p: <http://www.wikidata.org/prop/>
+PREFIX pq: <http://www.wikidata.org/prop/qualifier/>
+PREFIX ps: <http://www.wikidata.org/prop/statement/>
+PREFIX wd: <http://www.wikidata.org/entity/>
+PREFIX wdt: <http://www.wikidata.org/prop/direct/>
+
+SELECT
+  ?work
+  ?speaker
+  ?character
+  (GROUP_CONCAT(DISTINCT ?rawLangCode; separator="|") AS ?langCodes)
+  (MIN(?rawCreditedAsStr) AS ?creditedAs)
+WITH {
+  SELECT DISTINCT ?speaker WHERE {
+    ?speaker wdt:P31 wd:Q5 ;
+             wdt:P106 wd:Q2405480 ;
+             wdt:P27 wd:Q38 .
+  }
+} AS %speakers
+WITH {
+  SELECT DISTINCT ?work ?speaker ?character ?rawLangCode ?rawCreditedAsStr WHERE {
+    INCLUDE %speakers
+    {
+      ?work p:P725 ?stmt .
+      ?stmt ps:P725 ?speaker .
+      FILTER NOT EXISTS { ?work wdt:P1441 ?someWork . }
+      OPTIONAL { ?stmt pq:P453 ?character . }
+      OPTIONAL {
+        ?stmt pq:P407 ?lang .
+        ?lang wdt:P218 ?rawLangCode .
+      }
+      OPTIONAL { ?stmt pq:P1810 ?cred . BIND(STR(?cred) AS ?rawCreditedAsStr) }
+    }
+    UNION
+    {
+      ?character p:P725 ?stmt ;
+                 wdt:P1441 ?work .
+      ?stmt ps:P725 ?speaker .
+      OPTIONAL {
+        ?stmt pq:P407 ?lang .
+        ?lang wdt:P218 ?rawLangCode .
+      }
+      OPTIONAL { ?stmt pq:P1810 ?cred . BIND(STR(?cred) AS ?rawCreditedAsStr) }
+    }
+  }
+} AS %credits
+WHERE {
+  INCLUDE %credits
+}
+GROUP BY ?work ?speaker ?character
+ORDER BY ?work ?speaker ?character

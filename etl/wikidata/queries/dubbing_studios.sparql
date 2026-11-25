@@ -1,0 +1,55 @@
+# Dubbing studios (Q1298801) and voice-acting industry companies (P452 Q187657)
+# with lifecycle dates, succession/merger links, headquarters, and alternate names.
+PREFIX rdfs: <http://www.w3.org/2000/01/rdf-schema#>
+PREFIX skos: <http://www.w3.org/2004/02/skos/core#>
+PREFIX wd: <http://www.wikidata.org/entity/>
+PREFIX wdt: <http://www.wikidata.org/prop/direct/>
+
+SELECT
+  ?studio
+  (MIN(?rawNameIt) AS ?nameIt)
+  (MIN(?rawNameEn) AS ?nameEn)
+  (MIN(?rawNameAny) AS ?nameAny)
+  (GROUP_CONCAT(DISTINCT ?rawCountryCode; separator="|") AS ?countryCodes)
+  (MIN(?rawCityIt) AS ?cityIt)
+  (MIN(?rawCityEn) AS ?cityEn)
+  (GROUP_CONCAT(DISTINCT STR(?rawInception); separator="|") AS ?inceptionDates)
+  (GROUP_CONCAT(DISTINCT STR(?rawDissolved); separator="|") AS ?dissolvedDates)
+  (GROUP_CONCAT(DISTINCT STR(?rawReplacedBy); separator="|") AS ?replacedByQids)
+  (GROUP_CONCAT(DISTINCT STR(?rawFollowedBy); separator="|") AS ?followedByQids)
+  (GROUP_CONCAT(DISTINCT STR(?rawParentOrg); separator="|") AS ?parentOrgQids)
+  (MIN(?rawWebsiteStr) AS ?websiteUrl)
+  (GROUP_CONCAT(DISTINCT STR(?rawAltLabel); separator="|") AS ?altLabels)
+WHERE {
+  { ?studio wdt:P31 wd:Q1298801 . }
+  UNION
+  { ?studio wdt:P452 wd:Q187657 . }
+
+  OPTIONAL { ?studio rdfs:label ?lIt . FILTER(LANG(?lIt) = "it") BIND(STR(?lIt) AS ?rawNameIt) }
+  OPTIONAL { ?studio rdfs:label ?lEn . FILTER(LANG(?lEn) = "en") BIND(STR(?lEn) AS ?rawNameEn) }
+  OPTIONAL { ?studio rdfs:label ?lAny . BIND(STR(?lAny) AS ?rawNameAny) }
+
+  OPTIONAL {
+    ?studio wdt:P17 ?country .
+    ?country wdt:P297 ?rawCountryCode .
+  }
+  OPTIONAL {
+    { ?studio wdt:P159 ?hq . }
+    UNION
+    { ?studio wdt:P276 ?hq . }
+    OPTIONAL { ?hq rdfs:label ?cIt . FILTER(LANG(?cIt) = "it") BIND(STR(?cIt) AS ?rawCityIt) }
+    OPTIONAL { ?hq rdfs:label ?cEn . FILTER(LANG(?cEn) = "en") BIND(STR(?cEn) AS ?rawCityEn) }
+  }
+  OPTIONAL { ?studio wdt:P571 ?rawInception . }
+  OPTIONAL { ?studio wdt:P576 ?rawDissolved . }
+  OPTIONAL { ?studio wdt:P1366 ?rawReplacedBy . }
+  OPTIONAL { ?studio wdt:P156 ?rawFollowedBy . }
+  OPTIONAL { ?studio wdt:P749 ?rawParentOrg . }
+  OPTIONAL { ?studio wdt:P856 ?ws . BIND(STR(?ws) AS ?rawWebsiteStr) }
+  OPTIONAL {
+    ?studio skos:altLabel ?rawAltLabel .
+    FILTER(LANG(?rawAltLabel) IN ("it", "en"))
+  }
+}
+GROUP BY ?studio
+ORDER BY ?studio
