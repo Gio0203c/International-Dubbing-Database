@@ -1,0 +1,144 @@
+@startuml dubbing_er
+hide circle
+skinparam linetype ortho
+
+package "public schema (core dubbing model)" {
+  entity "public.speakers (ref)" as speakers {
+    * id : BIGINT <<PK, identity>>
+    * public_id : TEXT <<UK, generated>>
+    --
+    * display_name : TEXT
+    * sort_name : TEXT
+  }
+
+  entity "public.media_sources" as media_sources {
+    * id : BIGINT <<PK, identity>>
+    * public_id : TEXT <<UK, generated>>
+    --
+    * original_title : TEXT
+    * media_type : TEXT
+    is_animated : BOOLEAN
+    release_year : SMALLINT
+    end_year : SMALLINT
+    original_lang : TEXT
+    country_code : TEXT
+    parent_media_id : BIGINT <<FK>>
+    --
+    wikidata_qid : TEXT <<UK>>
+    imdb_tconst : TEXT <<UK>>
+    tmdb_media_type : TEXT <<UK>>
+    tmdb_id : INTEGER <<UK>>
+    anilist_media_id : INTEGER <<UK>>
+    --
+    * primary_source : TEXT
+    * is_verified : BOOLEAN
+    last_seen_at : TIMESTAMPTZ
+    * created_at : TIMESTAMPTZ
+    * updated_at : TIMESTAMPTZ
+  }
+
+  entity "public.studios" as studios {
+    * id : BIGINT <<PK, identity>>
+    * public_id : TEXT <<UK, generated>>
+    --
+    * name : TEXT
+    country_code : TEXT
+    city : TEXT
+    founded_year : SMALLINT
+    closed_year : SMALLINT
+    wikidata_qid : TEXT <<UK>>
+    website_url : TEXT
+    --
+    * primary_source : TEXT
+    * is_verified : BOOLEAN
+    last_seen_at : TIMESTAMPTZ
+    * created_at : TIMESTAMPTZ
+    * updated_at : TIMESTAMPTZ
+  }
+
+  entity "public.dubbing_editions" as dubbing_editions {
+    * id : BIGINT <<PK, identity>>
+    * public_id : TEXT <<UK, generated>>
+    --
+    * media_source_id : BIGINT <<FK, UK>>
+    studio_id : BIGINT <<FK>>
+    * lang_code : TEXT <<UK>>
+    region_code : TEXT <<UK>>
+    * edition_type : TEXT <<UK>>
+    edition_label : TEXT <<UK>>
+    release_year : SMALLINT <<UK>>
+    localized_title : TEXT
+    --
+    * primary_source : TEXT
+    * is_verified : BOOLEAN
+    last_seen_at : TIMESTAMPTZ
+    * created_at : TIMESTAMPTZ
+    * updated_at : TIMESTAMPTZ
+  }
+
+  entity "public.characters" as characters {
+    * id : BIGINT <<PK, identity>>
+    * public_id : TEXT <<UK, generated>>
+    --
+    * name : TEXT
+    media_source_id : BIGINT <<FK>>
+    gender : TEXT
+    wikidata_qid : TEXT <<UK>>
+    anilist_character_id : INTEGER <<UK>>
+    --
+    * primary_source : TEXT
+    * is_verified : BOOLEAN
+    last_seen_at : TIMESTAMPTZ
+    * created_at : TIMESTAMPTZ
+    * updated_at : TIMESTAMPTZ
+  }
+
+  entity "public.dubbing_credits" as dubbing_credits {
+    * id : BIGINT <<PK, identity>>
+    --
+    * dubbing_edition_id : BIGINT <<FK, UK>>
+    * speaker_id : BIGINT <<FK, UK>>
+    character_id : BIGINT <<FK, UK>>
+    * role_type : TEXT <<UK>>
+    credited_as : TEXT
+    original_actor_name : TEXT <<UK>>
+    original_actor_qid : TEXT
+    episode_range : TEXT <<UK>>
+    is_main_cast : BOOLEAN
+    notes : TEXT
+    --
+    * source : TEXT
+    * is_verified : BOOLEAN
+    last_seen_at : TIMESTAMPTZ
+    * created_at : TIMESTAMPTZ
+    * updated_at : TIMESTAMPTZ
+  }
+}
+
+media_sources |o--o{ media_sources : "parent_media_id (optional)"
+media_sources ||--o{ dubbing_editions : "editions"
+studios |o--o{ dubbing_editions : "studio_id (optional)"
+media_sources |o--o{ characters : "origin work (optional)"
+dubbing_editions ||--o{ dubbing_credits : "credits"
+speakers ||--o{ dubbing_credits : "credits"
+characters |o--o{ dubbing_credits : "character_id (optional)"
+
+note bottom of media_sources
+  tmdb_media_type and tmdb_id form one composite unique key
+  UNIQUE (tmdb_media_type, tmdb_id); other <<UK>> columns are individual.
+end note
+
+note bottom of dubbing_editions
+  <<UK>> columns form NULL-safe functional unique index
+  uq_dubbing_editions_natural (media_source_id, lang_code,
+  COALESCE(region_code, ''), edition_type, COALESCE(release_year, 0),
+  COALESCE(lower(btrim(edition_label)), '')).
+end note
+
+note bottom of dubbing_credits
+  <<UK>> columns form NULL-safe functional unique index
+  uq_dubbing_credits_natural (dubbing_edition_id, speaker_id, role_type,
+  COALESCE(character_id, -1), COALESCE(lower(btrim(original_actor_name)), ''),
+  COALESCE(lower(btrim(episode_range)), '')).
+end note
+@enduml

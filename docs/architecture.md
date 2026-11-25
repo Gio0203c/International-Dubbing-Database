@@ -14,7 +14,7 @@ IDDB uses two schemas inside the same PostgreSQL database: `staging` and `public
 
 The `staging` schema acts as a landing zone for raw upstream payloads. For Wikidata, `staging.wikidata_raw` stores the unmodified payload in a `JSONB` column alongside `fetched_at` and a content hash, with no strict domain constraints. This keeps extraction resilient against messy upstream data, lets the transform step be re-run locally without hitting external APIs again, and preserves any new properties added upstream in Wikidata without running automatic `ALTER TABLE` statements during ETL runs.
 
-The `public` schema holds normalized, strictly typed domain tables and the `etl_runs` audit table. The first domain table is `public.speakers`. Future migrations will add works, dubbing editions, casts, and supporting link tables. When a new upstream property proves stable and useful across sources, it is promoted into `public` through a deliberate, versioned SQL migration.
+The `public` schema holds normalized, strictly typed domain tables and the `etl_runs` audit table (`speakers` and its satellite tables in ADR-001 through ADR-006, and works, studios, dubbing editions, characters, and credits in ADR-007). When a new upstream property proves stable and useful across sources, it is promoted into `public` through a deliberate, versioned SQL migration.
 
 ## ADR-001: Surrogate Primary Key and Prefixed Public ID
 
@@ -121,7 +121,7 @@ Dubbing frequently runs across multi-generational families, and Wikidata already
 
 Family links live in a dedicated self-referencing link table `public.speaker_relationships` (mirroring MusicBrainz's `l_artist_artist` and `link` pattern), where both `speaker_id` and `related_speaker_id` reference `public.speakers(id)` with `ON DELETE CASCADE`.
 
-The `relationship_type` vocabulary distinguishes directed parenthood (`parent_of`, where `speaker_id` is the parent of `related_speaker_id`) from symmetric relations (`sibling`, `spouse`, `partner`, `relative`). A `CHECK` constraint forbids self-links (`speaker_id <> related_speaker_id`), and for symmetric relations requires canonical ordering (`speaker_id < related_speaker_id`) so each undirected relationship is stored once without reverse duplicates.
+The `relationship_type` vocabulary distinguishes directed parenthood (`parent_of`, where `speaker_id` is the parent of `related_speaker_id`) from symmetric relations (`sibling`, `spouse`, `partner`, `relative`). A `CHECK` constraint forbids self-links (`speaker_id <> related_speaker_id`), for symmetric relations requires canonical ordering (`speaker_id < related_speaker_id`), and `UNIQUE (speaker_id, related_speaker_id, relationship_type)` prevents reverse or duplicate edges.
 
 Following MusicBrainz, each edge also carries optional lifecycle columns (`is_ended BOOLEAN NULL`, `start_year SMALLINT NULL`, and `end_year SMALLINT NULL`). This allows representing ended relationships such as former spouses or partners (`is_ended = TRUE`) even when divorce or end dates are unknown (`end_year = NULL`), while still storing `P580`/`P582` years when available and enforcing `end_year IS NULL OR is_ended IS TRUE`.
 
@@ -154,3 +154,27 @@ Multi-valued speaker metadata is stored in three normalized `1:N` satellite tabl
 ### Consequences
 
 `public.speakers` remains compact and schema-stable as new providers and international scripts are added. Alias search stays fast via `lower(alias_name)`, primary bridge matching (`wikidata_qid`, `imdb_nconst`, `tmdb_person_id`) has no conflicting duplicate representation, and future ETL connectors can populate all three satellite tables idempotently without database schema changes.
+
+## ADR-007: Core Dubbing and Media Domain Model
+
+### Context
+
+Modeling dubbing casts globally requires separating an original work from its localized audio versions, tracking both animation and live-action dubs, supporting multiple historical re-dubs or regional language variants (such as European vs. Latin American Spanish), capturing non-acting localization crew roles (dubbing directors, dialogue adapters, assistant directors, sound engineers, musical directors, and theme-song performers), and handling episodic voice recasts.
+
+Upstream media catalogs also use incompatible identifier namespaces: for example, TMDB assigns independent integer IDs to movies and TV series, so a movie and a series can share the same numeric `tmdb_id`.
+
+### Decision
+
+`sql/migrations/008_create_core_dubbing_model.sql` introduces five normalized domain tables in `public`, linked cleanly to `public.speakers`:
+
+- `public.media_sources` (`md` prefixed `public_id`) stores original works across `media_type` values (`movie`, `tv_series`, `miniseries`, `ova`, `short`, `documentary`, `video_game`, `audiobook`, `web_series`, `special`, `other`), orthogonal to `is_animated BOOLEAN NULL`, with an optional self-referencing `parent_media_id` for sequels, specials, or spin-offs. Upstream bridges include `wikidata_qid`, `imdb_tconst` (`^tt[0-9]+$`), `anilist_media_id`, and the composite pair `(tmdb_media_type, tmdb_id)` enforced as a paired `CHECK` and `UNIQUE (tmdb_media_type, tmdb_id)`.
+- `public.studios` (`st` prefixed `public_id`) models dubbing studios and localization houses with optional country, city, founding/closure years, `wikidata_qid`, and `website_url`.
+- `public.dubbing_editions` (`ed` prefixed `public_id`) models each audio version of a work by `lang_code` (ISO 639-1), optional `region_code` (ISO 3166-1 alpha-2), `edition_type` (`dub`, `redub`, `original`, `voice_over`), optional `edition_label`, `release_year`, `localized_title`, and optional `studio_id`. A NULL-safe functional unique index (`uq_dubbing_editions_natural`) on `(media_source_id, lang_code, COALESCE(region_code, ''), edition_type, COALESCE(release_year, 0), COALESCE(lower(btrim(edition_label)), ''))` allows multiple re-dubs and regional variants while preventing exact duplicates.
+- `public.characters` (`ch` prefixed `public_id`) models voiced characters with an optional `media_source_id` (`ON DELETE SET NULL`) so recurring franchise characters can exist independently of a single film, alongside optional `gender`, `wikidata_qid`, and `anilist_character_id`.
+- `public.dubbing_credits` links a `dubbing_edition_id` (`ON DELETE CASCADE`), `speaker_id` (`ON DELETE CASCADE`), and optional `character_id` (`ON DELETE SET NULL`), covering voice and crew `role_type` values (`voice`, `singing`, `theme_song`, `narrator`, `dubbing_director`, `dialogue_adapter`, `assistant_director`, `sound_engineer`, `musical_director`, `additional_voices`, `other`), optional `credited_as` for on-screen pseudonyms, optional `episode_range` for mid-series voice changes, optional live-action performer references (`original_actor_name`, `original_actor_qid`), plus optional `is_main_cast` and `notes`. The functional unique index `uq_dubbing_credits_natural` enforces uniqueness on `(dubbing_edition_id, speaker_id, role_type, COALESCE(character_id, -1), COALESCE(lower(btrim(original_actor_name)), ''), COALESCE(lower(btrim(episode_range)), ''))`.
+
+The entity-relationship diagram for these tables is in [dubbing_er.puml](diagrams/dubbing_er.puml).
+
+### Consequences
+
+Re-dubs, regional localizations, original voice casts, non-acting crew credits, episodic voice changes, and live-action character-actor-speaker triples (`character | original_actor | dubbing_speaker`) are all queryable in normalized SQL without duplicating works or characters. Indexes on `dubbing_credits (speaker_id, role_type)` and `(role_type, speaker_id)` support fast filtering by localization role (such as listing all dubbing directors or dialogue adapters).

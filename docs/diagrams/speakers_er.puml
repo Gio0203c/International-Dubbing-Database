@@ -127,4 +127,11 @@ speakers ||--o{ speaker_languages : "languages"
 speakers ||--o{ speaker_external_ids : "external IDs"
 etl_runs |o..o{ wikidata_raw : "logical run reference (no rigid FK)"
 wikidata_raw ..> speakers : "transformed & upserted via wikidata_qid / bridge IDs"
+
+note bottom of speaker_aliases
+  <<UK>> marks functional index uq_speaker_aliases_speaker_name_locale
+  (speaker_id, lower(btrim(alias_name)), COALESCE(locale, '')).
+  Partial unique index uq_speaker_aliases_primary_per_locale enforces
+  at most one is_primary = TRUE row per (speaker_id, COALESCE(locale, '')).
+end note
 @enduml
