@@ -73,7 +73,7 @@ note left of contributors
 end note
 
 note bottom of provenance_records
-  Polymorphic (entity_table, entity_id) targets the 12 core public domain tables.
+  Polymorphic (entity_table, entity_id) targets the 13 core public domain tables.
   uq_provenance_records_natural deduplicates nullable URL/revision/edition keys.
   CHECK constraints block NC/ND licenses and enforce Wiki revisions & attribution.
 end note

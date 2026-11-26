@@ -24,6 +24,8 @@ DEFAULT_VOICE_ACTOR_CATEGORIES: dict[str, tuple[str, ...]] = {
     "it": (
         "Categoria:Doppiatori italiani del XX secolo",
         "Categoria:Doppiatori italiani del XXI secolo",
+        "Categoria:Direttori del doppiaggio italiani",
+        "Categoria:Dialoghisti italiani",
     ),
     "en": (
         "Category:English voice actors",

@@ -83,7 +83,7 @@ def pg_env(monkeypatch: pytest.MonkeyPatch) -> Iterator[None]:
             [str(pg_bin / "createdb"), "-h", str(pg_sock), "iddb_test"],
             check=True,
         )
-        for sql_file in sorted(MIGRATIONS_DIR.glob("00*.sql")):
+        for sql_file in sorted(MIGRATIONS_DIR.glob("*.sql")):
             subprocess.run(
                 [
                     "psql",
@@ -575,3 +575,104 @@ def test_studio_aliases_status_and_lineage(pg_env: None) -> None:
             (st_pumaisdue,),
         ).fetchone()["n"]
     assert aliases_left == 0
+
+
+def test_expanded_dubbing_crew_roles_and_edition_studios(pg_env: None) -> None:
+    """Verify migration 012 expanded crew roles, edition studio bridge, and provenance."""
+    with transaction() as conn:
+        sp_id = conn.execute(
+            "INSERT INTO public.speakers (display_name, sort_name) VALUES ('Marco Tecnico', 'Tecnico, Marco') RETURNING id"
+        ).fetchone()["id"]
+        media_id = conn.execute(
+            "INSERT INTO public.media_sources (original_title, media_type) VALUES ('Multi-Studio Film', 'movie') RETURNING id"
+        ).fetchone()["id"]
+        st_dub = conn.execute(
+            "INSERT INTO public.studios (name, country_code) VALUES ('Pumaisdue', 'IT') RETURNING id"
+        ).fetchone()["id"]
+        st_mix = conn.execute(
+            "INSERT INTO public.studios (name, country_code) VALUES ('Technicolor Sound Services', 'IT') RETURNING id"
+        ).fetchone()["id"]
+        ed_id = conn.execute(
+            """
+            INSERT INTO public.dubbing_editions (media_source_id, studio_id, lang_code, edition_type)
+            VALUES (%s, %s, 'it', 'dub') RETURNING id
+            """,
+            (media_id, st_dub),
+        ).fetchone()["id"]
+
+        new_roles = (
+            "recording_engineer",
+            "mixing_engineer",
+            "translator",
+            "lyricist",
+            "chorus",
+            "casting_director",
+            "production_manager",
+            "audio_editor",
+            "creative_supervisor",
+            "subtitler",
+        )
+        for role in new_roles:
+            conn.execute(
+                """
+                INSERT INTO public.dubbing_credits (dubbing_edition_id, speaker_id, role_type)
+                VALUES (%s, %s, %s)
+                """,
+                (ed_id, sp_id, role),
+            )
+
+        es_dub = conn.execute(
+            """
+            INSERT INTO public.dubbing_edition_studios (dubbing_edition_id, studio_id, role_type, credited_as)
+            VALUES (%s, %s, 'dubbing_studio', 'Pumaisdue S.r.l.') RETURNING id
+            """,
+            (ed_id, st_dub),
+        ).fetchone()["id"]
+        es_mix = conn.execute(
+            """
+            INSERT INTO public.dubbing_edition_studios (dubbing_edition_id, studio_id, role_type, credited_as)
+            VALUES (%s, %s, 'mixing_studio', 'Technicolor') RETURNING id
+            """,
+            (ed_id, st_mix),
+        ).fetchone()["id"]
+
+        # Verify provenance_records and audit_log accept 'dubbing_edition_studios'
+        prov_id = conn.execute(
+            """
+            INSERT INTO public.provenance_records (
+                entity_table, entity_id, source_type, source_license, source_url
+            )
+            VALUES ('dubbing_edition_studios', %s, 'wikidata', 'CC0-1.0', 'https://www.wikidata.org/wiki/Q1')
+            RETURNING id
+            """,
+            (es_dub,),
+        ).fetchone()["id"]
+        conn.execute(
+            """
+            INSERT INTO public.audit_log (entity_table, entity_id, action, changed_data, provenance_id)
+            VALUES ('dubbing_edition_studios', %s, 'INSERT', '{"role_type": "mixing_studio"}'::jsonb, %s)
+            """,
+            (es_mix, prov_id),
+        )
+
+    # Check violations and unique constraint on dubbing_edition_studios
+    with pytest.raises(psycopg.errors.CheckViolation):
+        with transaction() as conn:
+            conn.execute(
+                "INSERT INTO public.dubbing_edition_studios (dubbing_edition_id, studio_id, role_type) VALUES (%s, %s, 'invalid_role')",
+                (ed_id, st_dub),
+            )
+    with pytest.raises(psycopg.errors.UniqueViolation):
+        with transaction() as conn:
+            conn.execute(
+                "INSERT INTO public.dubbing_edition_studios (dubbing_edition_id, studio_id, role_type) VALUES (%s, %s, 'mixing_studio')",
+                (ed_id, st_mix),
+            )
+
+    with transaction() as conn:
+        conn.execute("DELETE FROM public.dubbing_editions WHERE id = %s", (ed_id,))
+        remaining = conn.execute(
+            "SELECT COUNT(*) AS n FROM public.dubbing_edition_studios WHERE dubbing_edition_id = %s",
+            (ed_id,),
+        ).fetchone()["n"]
+    assert remaining == 0

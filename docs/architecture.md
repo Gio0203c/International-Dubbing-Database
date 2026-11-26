@@ -238,3 +238,21 @@ Wikidata does not capture every voice actor documented on encyclopedia editions 
 ### Consequences
 
 IDDb captures voice actors present on Wikipedia before they receive `P106` or a `QID` on Wikidata, generates candidates for upstream Wikidata curation without blind bot creation, guarantees zero redundant writes on consecutive ETL runs, and enforces automated `CC BY-SA 4.0` compliance prior to publishing any dataset dump.
+
+## ADR-011: Expanded Dubbing Crew Roles, Multi-Studio Editions, and Broadened Crew Discovery
+
+### Context
+
+Real localized dubbing end-credit cards regularly separate fine-grained technical roles (for instance, recording/booth engineers vs mixing engineers, literal translators vs dialogue adapters, song lyricists, chorus singers, casting directors, production managers, audio/sync editors, creative supervisors, and subtitlers) and frequently credit multiple distinct companies on the same edition (a dubbing cooperative, a separate recording facility, an external mixing studio such as Technicolor or Deluxe, and a supervising distributor). In addition, Wikidata and Italian Wikipedia list dubbing directors, dialogue adapters, field-of-work `Q187657` professionals, and historical `Kingdom of Italy` (`Q172579`) artists who do not always carry `P106 = Q2405480` + `P27 = Q38`.
+
+### Decision
+
+`sql/migrations/012_expand_dubbing_crew_and_edition_studios.sql` and the updated Wikidata/Wikipedia extractors extend the model without breaking backward compatibility:
+
+- **Expanded `public.dubbing_credits.role_type` vocabulary (21 values):** Retains all 11 original values (`voice`, `singing`, `theme_song`, `narrator`, `dubbing_director`, `dialogue_adapter`, `assistant_director`, `sound_engineer`, `musical_director`, `additional_voices`, `other`) and adds 10 specialized roles (`recording_engineer`, `mixing_engineer`, `translator`, `lyricist`, `chorus`, `casting_director`, `production_manager`, `audio_editor`, `creative_supervisor`, `subtitler`).
+- **Multi-studio edition roles (`public.dubbing_edition_studios`):** Adds an `N:M` bridge table between `public.dubbing_editions` and `public.studios` with controlled `role_type` (`dubbing_studio`, `recording_studio`, `mixing_studio`, `production_supervisor`, `other`), optional `credited_as` and `notes`, `UNIQUE (dubbing_edition_id, studio_id, role_type)`, and `ON DELETE CASCADE`, while keeping `public.dubbing_editions.studio_id` for fast single-join primary studio lookups. `public.provenance_records` and `public.audit_log` `CHECK` constraints are updated to allow `'dubbing_edition_studios'`.
+- **Broadened dubbing crew ingestion:** `etl/wikidata/queries/italian_voice_actors.sparql` (plus the companion relationship and satellite queries) includes `Q1298794` (*dub director*), `Q1208493` (*voice director*), `Q3026032` (*dialogue writer*), `P101`/`P106 = Q187657` (*dubbing*), and `P27 = Q172579` (*Kingdom of Italy*). `etl/wikipedia/extract.py` adds `Categoria:Direttori del doppiaggio italiani` and `Categoria:Dialoghisti italiani` to the default `--lang it` categories.
+
+### Consequences
+
+IDDb models full localized end-credit cards cleanly in 3NF without wide nullable studio columns, captures Italian dubbing directors and dialogue adapters alongside voice actors, and maintains full provenance tracking across all 13 core domain tables (19 database tables total: 17 in `public` and 2 in `staging`), reflected in [dubbing_er.puml](diagrams/dubbing_er.puml) and [provenance_er.puml](diagrams/provenance_er.puml).

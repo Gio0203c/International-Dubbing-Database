@@ -1,9 +1,12 @@
-# Italian voice actors pilot slice from Wikidata Query Service (WDQS).
+# Italian voice actors and dubbing crew pilot slice from Wikidata Query Service (WDQS).
 #
 # Scope anchors:
-#   - wdt:P31 wd:Q5                  human
-#   - wdt:P27 wd:Q38                 country of citizenship: Italy (pilot slice)
-#   - wdt:P106/wdt:P279* wd:Q2405480 voice actor or subclass (such as dub actor Q11481802)
+#   - wdt:P31 wd:Q5                          human
+#   - wdt:P27 in (wd:Q38, wd:Q172579)        Italy or Kingdom of Italy
+#   - wdt:P106/wdt:P279* in (Q2405480 voice actor, Q1298794 dub director,
+#     Q1208493 voice director, Q3026032 dialogue writer)
+#     OR wdt:P101 wd:Q187657 (field of work: dubbing)
+#     OR wdt:P106 wd:Q187657 (dubbing)
 #
 # Aggregation:
 #   Returns exactly one row per Wikidata entity (?person). Multi-valued
@@ -36,9 +39,17 @@ WHERE {
   {
     SELECT DISTINCT ?person WHERE {
       hint:SubQuery hint:runOnce true .
-      ?occ wdt:P279* wd:Q2405480 .
-      ?person wdt:P106 ?occ ;
-              wdt:P27 wd:Q38 ;
+      VALUES ?country { wd:Q38 wd:Q172579 }
+      {
+        VALUES ?rootOcc { wd:Q2405480 wd:Q1298794 wd:Q1208493 wd:Q3026032 }
+        ?occ wdt:P279* ?rootOcc .
+        ?person wdt:P106 ?occ .
+      }
+      UNION
+      { ?person wdt:P101 wd:Q187657 . }
+      UNION
+      { ?person wdt:P106 wd:Q187657 . }
+      ?person wdt:P27 ?country ;
               wdt:P31 wd:Q5 .
     }
   }

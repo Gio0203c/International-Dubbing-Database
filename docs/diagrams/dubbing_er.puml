@@ -109,6 +109,22 @@ package "public schema (core dubbing model)" {
     * updated_at : TIMESTAMPTZ
   }
 
+  entity "public.dubbing_edition_studios" as dubbing_edition_studios {
+    * id : BIGINT <<PK, identity>>
+    --
+    * dubbing_edition_id : BIGINT <<FK, UK>>
+    * studio_id : BIGINT <<FK, UK>>
+    * role_type : TEXT <<UK>>
+    credited_as : TEXT
+    notes : TEXT
+    --
+    * source : TEXT
+    * is_verified : BOOLEAN
+    last_seen_at : TIMESTAMPTZ
+    * created_at : TIMESTAMPTZ
+    * updated_at : TIMESTAMPTZ
+  }
+
   entity "public.characters" as characters {
     * id : BIGINT <<PK, identity>>
     * public_id : TEXT <<UK, generated>>
@@ -161,6 +177,8 @@ note bottom of studio_aliases
   uq_studio_aliases_studio_name_start
   (studio_id, lower(btrim(alias_name)), COALESCE(start_year, 0)).
 end note
+dubbing_editions ||--o{ dubbing_edition_studios : "studio roles"
+studios ||--o{ dubbing_edition_studios : "edition roles"
 dubbing_editions ||--o{ dubbing_credits : "credits"
 speakers ||--o{ dubbing_credits : "credits"
 characters |o--o{ dubbing_credits : "character_id (optional)"
