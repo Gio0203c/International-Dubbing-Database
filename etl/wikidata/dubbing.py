@@ -1201,6 +1201,7 @@ def load_dubbing_credits(
                    credited_as, source, is_verified
             FROM public.dubbing_credits
             WHERE role_type = 'voice'
+              AND original_actor_qid IS NULL
               AND COALESCE(lower(btrim(original_actor_name)), '') = ''
               AND COALESCE(lower(btrim(episode_range)), '') = ''
             """

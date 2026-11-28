@@ -32,18 +32,20 @@ SELECT DISTINCT
   ?endCause
 WITH {
   SELECT DISTINCT ?person WHERE {
-    VALUES ?country { wd:Q38 wd:Q172579 }
     {
-      VALUES ?rootOcc { wd:Q2405480 wd:Q1298794 wd:Q1208493 wd:Q3026032 }
-      ?occ wdt:P279* ?rootOcc .
-      ?person wdt:P106 ?occ .
+      VALUES ?occ { wd:Q2405480 wd:Q11481802 wd:Q622807 wd:Q1298794 wd:Q1208493 wd:Q3026032 wd:Q187657 }
+      VALUES ?country { wd:Q38 wd:Q172579 }
+      ?person wdt:P106 ?occ ;
+              wdt:P27 ?country ;
+              wdt:P31 wd:Q5 .
     }
     UNION
-    { ?person wdt:P101 wd:Q187657 . }
-    UNION
-    { ?person wdt:P106 wd:Q187657 . }
-    ?person wdt:P27 ?country ;
-            wdt:P31 wd:Q5 .
+    {
+      VALUES ?country { wd:Q38 wd:Q172579 }
+      ?person wdt:P101 wd:Q187657 ;
+              wdt:P27 ?country ;
+              wdt:P31 wd:Q5 .
+    }
   }
 } AS %speakers
 WHERE {
